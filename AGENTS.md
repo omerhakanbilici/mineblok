@@ -128,6 +128,19 @@ The scene is fixed to the viewport. HUD groups use absolute positioning inside `
 
 Walking may change animation or cursor styling, but it must not visually imply that controls are locked. The walking canvas cursor remains interactive.
 
+## Canvas performance contract
+
+Tablet stability takes priority over maximum backing-store resolution. Preserve these rendering constraints:
+
+- Detect low-power rendering through capabilities such as a coarse pointer, touch input, limited logical CPU count, or limited reported device memory; do not maintain a device or user-agent list.
+- Cap low-power devices at 30 FPS, a `1.25` Canvas scale, and a 1.6-million-pixel backing-store budget. Keep the full profile capped at `2x` and six million pixels.
+- Cache terrain and flowers in the offscreen terrain layer. Rebuild it only after a meaningful camera shift, a viewport/profile change, or a new `world` reference.
+- Keep flowers static inside that cache. Stars, creatures, enemies, the player, and short effects remain dynamic and visibility-culled.
+- Read Canvas dimensions from the ResizeObserver-maintained ref instead of forcing a layout read in every animation frame.
+- Skip drawing while the document is hidden and keep star data in `starsRef`; spawning or collecting a star must not require a React render solely to refresh Canvas data.
+
+Do not return to an unconditional `devicePixelRatio` scale or redraw every terrain polygon on every animation frame. When performance-related code changes, validate both production builds and keep the source assertions for the render budget and terrain cache.
+
 ## Validation workflow
 
 Use Node.js `>=22.13.0` and run:

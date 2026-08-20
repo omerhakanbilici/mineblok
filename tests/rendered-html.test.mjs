@@ -104,6 +104,17 @@ test("keeps camera, creatures, combat, and every control inside the game scene",
   assert.match(game, /starsRef\.current\.length >= 32/);
   assert.match(game, /setStarCount\(starCountRef\.current\)/);
   assert.doesNotMatch(game, /celebrating|STARS|hedef 3/);
+  assert.match(game, /const LOW_POWER_FRAME_INTERVAL = 1000 \/ 30;/);
+  assert.match(game, /const LOW_POWER_CANVAS_SCALE = 1\.25;/);
+  assert.match(game, /const LOW_POWER_CANVAS_PIXEL_BUDGET = 1_600_000;/);
+  assert.match(game, /function detectRenderProfile/);
+  assert.match(game, /function getCanvasScale/);
+  assert.match(game, /function drawTerrainLayer/);
+  assert.match(game, /const terrainCacheRef = useRef<TerrainCache \| null>\(null\);/);
+  assert.match(game, /previousCache\.world !== world/);
+  assert.match(game, /drawFlower\(context, x, y, column\.length, metrics, 0\);/);
+  assert.match(game, /document\.visibilityState !== "hidden"/);
+  assert.doesNotMatch(game, /Math\.min\(window\.devicePixelRatio \|\| 1, 2\)/);
   assert.match(game, /<section className="world-card"[\s\S]*<header className="scene-topbar"/);
   assert.match(game, /<nav className=\{`tool-dock/);
   assert.match(game, /className="dpad"/);
@@ -118,10 +129,12 @@ test("keeps camera, creatures, combat, and every control inside the game scene",
   assert.match(page, /import BlockGardenWorld from "\.\/BlockGardenWorld";/);
   assert.match(layout, /import "\.\/world\.css";/);
   assert.match(readme, /### Kesilebilir hareket/);
+  assert.match(readme, /## Tablet performansı/);
   assert.match(readme, /https:\/\/mineblok\.hakanbil\.chatgpt\.site\//);
   assert.match(readme, /npm test/);
   assert.match(agentGuide, /Never reintroduce `disabled=\{isWalking\}`/);
   assert.match(agentGuide, /## Interruptible movement state machine/);
+  assert.match(agentGuide, /## Canvas performance contract/);
   assert.match(agentGuide, /guests can play without ChatGPT sign-in/);
   assert.match(agentGuide, /Deploy to the existing public access level/);
 

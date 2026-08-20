@@ -87,6 +87,18 @@ npm run lint
 
 Oyunun veritabanı veya kullanıcı hesabına bağlı kalıcı kaydı yoktur. Dünya, canlılar, can ve yıldız sayısı sayfa belleğinde tutulur; yenileme veya sıfırlama yeni bir oyun başlatır.
 
+## Tablet performansı
+
+Çiçek ve yıldız hareketleri tek başına ana darboğaz değildir. En yüksek maliyet, tam ekran Canvas'ın cihaz piksel oranıyla büyütülmesi ve görünür arazideki yüzlerce blok yüzünün her animasyon karesinde yeniden çizilmesiydi.
+
+- Arazi ve çiçekler ayrı bir Canvas katmanında önbelleğe alınır; kamera yeterince hareket edene veya dünya değişene kadar pahalı blok çizimi tekrarlanmaz.
+- Çiçekler önbellekte farklı yönlere eğilmiş halde sabittir. Yıldızlar, karakter, hayvanlar, düşmanlar ve efektler hareket etmeye devam eder.
+- Dokunmatik veya düşük donanımlı cihazlarda oyun 30 FPS hedefler, Canvas ölçeğini en fazla `1.25` yapar ve yaklaşık 1,6 milyon piksel bütçesini aşmaz.
+- Güçlü masaüstü cihazlar 60 FPS'e ve en fazla `2x` Canvas ölçeğine devam eder.
+- Sekme görünür değilken çizim yapılmaz.
+
+Bu sınırları kaldırmayın veya mobil cihazlarda sınırsız `devicePixelRatio` kullanmayın. Görsel kaliteyi artırmak gerekirse önce tabletlerde ölçüm yapın; kararlı hareket, ek çözünürlükten daha önemlidir.
+
 ### Önemli dosyalar
 
 | Dosya | Sorumluluk |

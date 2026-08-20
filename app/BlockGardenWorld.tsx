@@ -74,6 +74,54 @@ type Metrics = {
   camera: WorldPosition;
 };
 
+type RenderProfile = {
+  lowPower: boolean;
+  reducedMotion: boolean;
+  maxScale: number;
+  pixelBudget: number;
+  frameInterval: number;
+};
+
+type TerrainCache = {
+  canvas: HTMLCanvasElement;
+  cssWidth: number;
+  cssHeight: number;
+  padding: number;
+  scale: number;
+  camera: WorldPosition;
+  world: World;
+};
+
+const LOW_POWER_FRAME_INTERVAL = 1000 / 30;
+const LOW_POWER_CANVAS_SCALE = 1.25;
+const LOW_POWER_CANVAS_PIXEL_BUDGET = 1_600_000;
+const FULL_CANVAS_SCALE = 2;
+const FULL_CANVAS_PIXEL_BUDGET = 6_000_000;
+const TERRAIN_CACHE_CAMERA_THRESHOLD = 0.82;
+
+function detectRenderProfile(): RenderProfile {
+  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const limitedCpu = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4;
+  const limitedMemory = deviceMemory !== undefined && deviceMemory <= 4;
+  const lowPower = coarsePointer || navigator.maxTouchPoints > 0 || limitedCpu || limitedMemory;
+
+  return {
+    lowPower,
+    reducedMotion,
+    maxScale: lowPower ? LOW_POWER_CANVAS_SCALE : FULL_CANVAS_SCALE,
+    pixelBudget: lowPower ? LOW_POWER_CANVAS_PIXEL_BUDGET : FULL_CANVAS_PIXEL_BUDGET,
+    frameInterval: lowPower ? LOW_POWER_FRAME_INTERVAL : 0,
+  };
+}
+
+function getCanvasScale(width: number, height: number, profile: RenderProfile) {
+  const deviceScale = window.devicePixelRatio || 1;
+  const budgetScale = Math.sqrt(profile.pixelBudget / Math.max(1, width * height));
+  return Math.max(1, Math.min(deviceScale, profile.maxScale, budgetScale));
+}
+
 const ANIMAL_SPAWNS: Array<{
   id: string;
   kind: AnimalKind;
@@ -423,6 +471,45 @@ function drawStar(
   context.lineWidth = Math.max(2, metrics.tileW * 0.018);
   context.stroke();
   context.restore();
+}
+
+function drawTerrainLayer(
+  context: CanvasRenderingContext2D,
+  world: World,
+  metrics: Metrics,
+  surfaceWidth: number,
+  surfaceHeight: number,
+) {
+  const horizontalRange = Math.ceil(surfaceWidth / metrics.tileW) + 7;
+  const verticalRange = Math.ceil(surfaceHeight / Math.max(1, metrics.tileH)) / 2 + 7;
+  const range = Math.min(28, Math.max(13, Math.ceil(horizontalRange), Math.ceil(verticalRange)));
+  const minX = Math.max(0, Math.floor(metrics.camera.x) - range);
+  const maxX = Math.min(WORLD_SIZE - 1, Math.ceil(metrics.camera.x) + range);
+  const minY = Math.max(0, Math.floor(metrics.camera.y) - range);
+  const maxY = Math.min(WORLD_SIZE - 1, Math.ceil(metrics.camera.y) + range);
+
+  for (let diagonal = minX + minY; diagonal <= maxX + maxY; diagonal += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const y = diagonal - x;
+      if (y < minY || y > maxY) continue;
+      const column = world[y][x];
+      if (column.length === 0) continue;
+      const topCenter = tileCenter(x, y, column.length, metrics);
+      if (
+        topCenter.x < -metrics.tileW ||
+        topCenter.x > surfaceWidth + metrics.tileW ||
+        topCenter.y < -metrics.blockH * 3 ||
+        topCenter.y > surfaceHeight + metrics.blockH * 2
+      ) {
+        continue;
+      }
+      column.forEach((kind, z) => drawBlock(context, x, y, z, kind, metrics));
+      if (column.at(-1) === "flower") {
+        // Flowers keep a varied lean but stay in the cached terrain layer instead of animating every frame.
+        drawFlower(context, x, y, column.length, metrics, 0);
+      }
+    }
+  }
 }
 
 function drawCuboid(
@@ -1004,6 +1091,15 @@ function updateEnemy(enemy: EnemyState, world: World, time: number, active: bool
 
 export default function BlockGardenWorld() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasSizeRef = useRef({ width: 0, height: 0 });
+  const renderProfileRef = useRef<RenderProfile>({
+    lowPower: false,
+    reducedMotion: false,
+    maxScale: FULL_CANVAS_SCALE,
+    pixelBudget: FULL_CANVAS_PIXEL_BUDGET,
+    frameInterval: 0,
+  });
+  const terrainCacheRef = useRef<TerrainCache | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const playerRef = useRef<Point>({ ...START_POINT });
   const cameraRef = useRef<WorldPosition>({ x: START_POINT.x, y: START_POINT.y, z: 0 });
@@ -1013,9 +1109,9 @@ export default function BlockGardenWorld() {
   const [mode, setMode] = useState<Mode>("walk");
   const [selectedBlock, setSelectedBlock] = useState<BuildBlock>("grass");
   const [world, setWorld] = useState<World>(() => makeInitialWorld());
-  const [stars, setStars] = useState<StarState[]>(() => makeInitialStars(world));
-  const starsRef = useRef<StarState[]>(stars);
-  const starIdRef = useRef(stars.length);
+  const [initialStars] = useState<StarState[]>(() => makeInitialStars(world));
+  const starsRef = useRef<StarState[]>(initialStars);
+  const starIdRef = useRef(initialStars.length);
   const starCountRef = useRef(0);
   const animalsRef = useRef<AnimalState[]>(makeAnimals());
   const [initialEnemies] = useState<EnemyState[]>(() => makeEnemies(world));
@@ -1075,26 +1171,70 @@ export default function BlockGardenWorld() {
     [soundOn],
   );
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const coarsePointerQuery = window.matchMedia("(pointer: coarse)");
+    const updateProfile = () => {
+      renderProfileRef.current = detectRenderProfile();
+      terrainCacheRef.current = null;
+    };
+    const updateSize = () => {
+      const bounds = canvas.getBoundingClientRect();
+      const width = Math.round(bounds.width);
+      const height = Math.round(bounds.height);
+      const previous = canvasSizeRef.current;
+      if (previous.width === width && previous.height === height) return;
+      canvasSizeRef.current = { width, height };
+      terrainCacheRef.current = null;
+    };
+    const subscribeToQuery = (query: MediaQueryList) => {
+      if (typeof query.addEventListener === "function") query.addEventListener("change", updateProfile);
+      else query.addListener(updateProfile);
+    };
+    const unsubscribeFromQuery = (query: MediaQueryList) => {
+      if (typeof query.removeEventListener === "function") query.removeEventListener("change", updateProfile);
+      else query.removeListener(updateProfile);
+    };
+
+    updateProfile();
+    updateSize();
+
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateSize);
+    observer?.observe(canvas);
+    window.addEventListener("resize", updateSize);
+    subscribeToQuery(reducedMotionQuery);
+    subscribeToQuery(coarsePointerQuery);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateSize);
+      unsubscribeFromQuery(reducedMotionQuery);
+      unsubscribeFromQuery(coarsePointerQuery);
+    };
+  }, []);
+
   const draw = useCallback(
     (rawTime: number) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const bounds = canvas.getBoundingClientRect();
-      if (bounds.width === 0 || bounds.height === 0) return;
-      const scale = Math.min(window.devicePixelRatio || 1, 2);
-      const targetWidth = Math.round(bounds.width * scale);
-      const targetHeight = Math.round(bounds.height * scale);
+      const { width, height } = canvasSizeRef.current;
+      if (width === 0 || height === 0) return;
+      const profile = renderProfileRef.current;
+      const scale = getCanvasScale(width, height, profile);
+      const targetWidth = Math.round(width * scale);
+      const targetHeight = Math.round(height * scale);
       if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
       }
-      const context = canvas.getContext("2d");
+      const context = canvas.getContext("2d", { alpha: false });
       if (!context) return;
       context.setTransform(scale, 0, 0, scale, 0, 0);
-      const width = bounds.width;
-      const height = bounds.height;
-      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const time = reducedMotion ? 0 : rawTime;
+      context.imageSmoothingEnabled = true;
+      const time = profile.reducedMotion ? 0 : rawTime;
       const swingAge = rawTime - swordSwingStartedAtRef.current;
       const swordSwingProgress = swingAge >= 0 && swingAge < 380 ? swingAge / 380 : null;
 
@@ -1176,35 +1316,92 @@ export default function BlockGardenWorld() {
       context.fillStyle = glow;
       context.fillRect(0, 0, width, height);
 
-      const horizontalRange = Math.ceil(width / metrics.tileW) + 7;
-      const verticalRange = Math.ceil(height / Math.max(1, metrics.tileH)) / 2 + 7;
-      const range = Math.min(24, Math.max(13, Math.ceil(horizontalRange), Math.ceil(verticalRange)));
-      const minX = Math.max(0, Math.floor(playerWorld.x) - range);
-      const maxX = Math.min(WORLD_SIZE - 1, Math.ceil(playerWorld.x) + range);
-      const minY = Math.max(0, Math.floor(playerWorld.y) - range);
-      const maxY = Math.min(WORLD_SIZE - 1, Math.ceil(playerWorld.y) + range);
+      const padding = Math.ceil(metrics.tileW * 1.4 + metrics.blockH * 1.2);
+      const cacheWidth = width + padding * 2;
+      const cacheHeight = height + padding * 2;
+      const previousCache = terrainCacheRef.current;
+      const cameraMoved = previousCache
+        ? Math.max(
+            Math.abs(playerWorld.x - previousCache.camera.x),
+            Math.abs(playerWorld.y - previousCache.camera.y),
+            Math.abs(playerWorld.z - previousCache.camera.z),
+          ) >= TERRAIN_CACHE_CAMERA_THRESHOLD
+        : true;
+      const cacheNeedsRefresh =
+        !previousCache ||
+        previousCache.cssWidth !== cacheWidth ||
+        previousCache.cssHeight !== cacheHeight ||
+        Math.abs(previousCache.scale - scale) > 0.01 ||
+        previousCache.world !== world ||
+        cameraMoved;
 
-      for (let diagonal = minX + minY; diagonal <= maxX + maxY; diagonal += 1) {
-        for (let x = minX; x <= maxX; x += 1) {
-          const y = diagonal - x;
-          if (y < minY || y > maxY) continue;
-          const column = world[y][x];
-          if (column.length === 0) continue;
-          const topCenter = tileCenter(x, y, column.length, metrics);
-          if (
-            topCenter.x < -metrics.tileW ||
-            topCenter.x > width + metrics.tileW ||
-            topCenter.y < -metrics.blockH * 3 ||
-            topCenter.y > height + metrics.blockH * 2
-          ) {
-            continue;
-          }
-          column.forEach((kind, z) => drawBlock(context, x, y, z, kind, metrics));
-          if (column.at(-1) === "flower") drawFlower(context, x, y, column.length, metrics, time);
+      if (cacheNeedsRefresh) {
+        const targetCacheWidth = Math.round(cacheWidth * scale);
+        const targetCacheHeight = Math.round(cacheHeight * scale);
+        let terrainCanvas = previousCache?.canvas;
+        if (
+          !terrainCanvas ||
+          terrainCanvas.width !== targetCacheWidth ||
+          terrainCanvas.height !== targetCacheHeight
+        ) {
+          const resizedCanvas = document.createElement("canvas");
+          resizedCanvas.width = targetCacheWidth;
+          resizedCanvas.height = targetCacheHeight;
+          terrainCanvas = resizedCanvas;
+        }
+        const terrainContext = terrainCanvas.getContext("2d");
+        if (terrainContext) {
+          terrainContext.setTransform(1, 0, 0, 1, 0, 0);
+          terrainContext.clearRect(0, 0, terrainCanvas.width, terrainCanvas.height);
+          terrainContext.setTransform(scale, 0, 0, scale, 0, 0);
+          const cachedCamera = { ...playerWorld };
+          const cachedMetrics: Metrics = {
+            ...metrics,
+            width: cacheWidth,
+            height: cacheHeight,
+            centerX: metrics.centerX + padding,
+            centerY: metrics.centerY + padding,
+            camera: cachedCamera,
+          };
+          drawTerrainLayer(terrainContext, world, cachedMetrics, cacheWidth, cacheHeight);
+          terrainCacheRef.current = {
+            canvas: terrainCanvas,
+            cssWidth: cacheWidth,
+            cssHeight: cacheHeight,
+            padding,
+            scale,
+            camera: cachedCamera,
+            world,
+          };
         }
       }
 
-      for (const star of stars) {
+      const terrainCache = terrainCacheRef.current;
+      if (terrainCache) {
+        const cameraDeltaX = playerWorld.x - terrainCache.camera.x;
+        const cameraDeltaY = playerWorld.y - terrainCache.camera.y;
+        const cameraDeltaZ = playerWorld.z - terrainCache.camera.z;
+        const offsetX = (-cameraDeltaX + cameraDeltaY) * (metrics.tileW / 2);
+        const offsetY =
+          (-cameraDeltaX - cameraDeltaY) * (metrics.tileH / 2) + cameraDeltaZ * metrics.blockH;
+        const sourceX = (terrainCache.padding - offsetX) * terrainCache.scale;
+        const sourceY = (terrainCache.padding - offsetY) * terrainCache.scale;
+        context.drawImage(
+          terrainCache.canvas,
+          sourceX,
+          sourceY,
+          width * terrainCache.scale,
+          height * terrainCache.scale,
+          0,
+          0,
+          width,
+          height,
+        );
+      } else {
+        drawTerrainLayer(context, world, metrics, width, height);
+      }
+
+      for (const star of starsRef.current) {
         const column = world[star.y][star.x];
         if (column.length === 0) continue;
         const center = tileCenter(star.x, star.y, column.length, metrics);
@@ -1235,13 +1432,22 @@ export default function BlockGardenWorld() {
       const playerCenter = tileCenter(playerWorld.x, playerWorld.y, playerWorld.z + 1, metrics);
       drawVoxelPlayer(context, playerCenter, metrics, time, playerPose);
     },
-    [playSound, started, stars, world],
+    [playSound, started, world],
   );
 
   useEffect(() => {
     let frame = 0;
+    let lastDrawAt = 0;
     const render = (time: number) => {
-      draw(time);
+      const frameInterval = renderProfileRef.current.frameInterval;
+      const elapsed = time - lastDrawAt;
+      if (
+        document.visibilityState !== "hidden" &&
+        (lastDrawAt === 0 || frameInterval === 0 || elapsed >= frameInterval)
+      ) {
+        draw(time);
+        lastDrawAt = frameInterval > 0 ? time - (elapsed % frameInterval) : time;
+      }
       frame = window.requestAnimationFrame(render);
     };
     frame = window.requestAnimationFrame(render);
@@ -1260,7 +1466,6 @@ export default function BlockGardenWorld() {
         { ...point, id: `gezgin-yildiz-${starIdRef.current}` },
       ];
       starsRef.current = nextStars;
-      setStars(nextStars);
     }, 5200);
     return () => window.clearInterval(timer);
   }, [started, world]);
@@ -1305,7 +1510,6 @@ export default function BlockGardenWorld() {
           ]
         : remainingStars;
       starsRef.current = nextStars;
-      setStars(nextStars);
       starCountRef.current += 1;
       setStarCount(starCountRef.current);
       playSound("star");
@@ -1716,7 +1920,6 @@ export default function BlockGardenWorld() {
     dangerNearbyRef.current = false;
     healthRef.current = MAX_HEALTH;
     setWorld(nextWorld);
-    setStars(nextStars);
     setStarCount(0);
     setHealth(MAX_HEALTH);
     setDangerNearby(false);
