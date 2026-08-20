@@ -1315,6 +1315,29 @@ export default function BlockGardenWorld() {
     [playSound, world],
   );
 
+  const stopWalking = useCallback(() => {
+    const motion = walkRef.current;
+    if (!motion) return playerRef.current;
+
+    const progress = Math.min(
+      1,
+      Math.max(0, (performance.now() - motion.startedAt) / motion.duration),
+    );
+    // Settle on the nearest grid cell so a new action never leaves Mino between blocks.
+    const anchor = progress >= 0.5 ? motion.to : motion.from;
+    const reachedNextTile = !isSamePoint(playerRef.current, anchor);
+    walkRef.current = null;
+    playerRef.current = anchor;
+    cameraRef.current = {
+      x: anchor.x,
+      y: anchor.y,
+      z: Math.max(0, world[anchor.y][anchor.x].length - 1),
+    };
+    setIsWalking(false);
+    if (reachedNextTile) arrivalRef.current(anchor, false);
+    return anchor;
+  }, [world]);
+
   const addDust = useCallback(
     (point: Point, color: string) => {
       const tileX = Math.max(0, Math.min(WORLD_SIZE - 1, Math.round(point.x)));
@@ -1378,7 +1401,7 @@ export default function BlockGardenWorld() {
   const swingSword = useCallback(() => {
     const now = performance.now();
     swordSwingStartedAtRef.current = now;
-    const player = playerRef.current;
+    const player = stopWalking();
     let nearest: { enemy: EnemyState; distance: number } | null = null;
     for (const enemy of enemiesRef.current) {
       const position = movingEntityPoint(enemy, now);
@@ -1402,7 +1425,7 @@ export default function BlockGardenWorld() {
       playSound("hit");
       setMessage("Kılıç hazır — biraz daha yaklaş!");
     }
-  }, [playSound, removeAnimalNear, strikeEnemy]);
+  }, [playSound, removeAnimalNear, stopWalking, strikeEnemy]);
 
   useEffect(() => {
     if (!started) return;
@@ -1508,11 +1531,7 @@ export default function BlockGardenWorld() {
 
   const moveTo = useCallback(
     (point: Point) => {
-      if (walkRef.current) {
-        setMessage("Mino yürüyor...");
-        return;
-      }
-      const start = playerRef.current;
+      const start = stopWalking();
       if (point.x < 0 || point.y < 0 || point.x >= WORLD_SIZE || point.y >= WORLD_SIZE) {
         playSound("oops");
         setMessage("Dünyanın içinde kalalım");
@@ -1540,7 +1559,7 @@ export default function BlockGardenWorld() {
       setMessage("Kamera Mino'yu ortada tutuyor");
       playSound("step");
     },
-    [playSound, world],
+    [playSound, stopWalking, world],
   );
 
   useEffect(() => {
@@ -1551,26 +1570,25 @@ export default function BlockGardenWorld() {
         swingSword();
         return;
       }
-      if (isWalking) return;
-      const current = playerRef.current;
       const moves: Record<string, Point> = {
-        ArrowUp: { x: current.x - 1, y: current.y },
-        w: { x: current.x - 1, y: current.y },
-        ArrowDown: { x: current.x + 1, y: current.y },
-        s: { x: current.x + 1, y: current.y },
-        ArrowLeft: { x: current.x, y: current.y + 1 },
-        a: { x: current.x, y: current.y + 1 },
-        ArrowRight: { x: current.x, y: current.y - 1 },
-        d: { x: current.x, y: current.y - 1 },
+        ArrowUp: { x: -1, y: 0 },
+        w: { x: -1, y: 0 },
+        ArrowDown: { x: 1, y: 0 },
+        s: { x: 1, y: 0 },
+        ArrowLeft: { x: 0, y: 1 },
+        a: { x: 0, y: 1 },
+        ArrowRight: { x: 0, y: -1 },
+        d: { x: 0, y: -1 },
       };
-      const next = moves[event.key];
-      if (!next) return;
+      const direction = moves[event.key];
+      if (!direction) return;
       event.preventDefault();
-      moveTo(next);
+      const current = stopWalking();
+      moveTo({ x: current.x + direction.x, y: current.y + direction.y });
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isWalking, moveTo, started, swingSword]);
+  }, [moveTo, started, stopWalking, swingSword]);
 
   const findTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1710,7 +1728,7 @@ export default function BlockGardenWorld() {
   };
 
   const step = (direction: "northwest" | "northeast" | "southwest" | "southeast") => {
-    const current = playerRef.current;
+    const current = stopWalking();
     const next = {
       northwest: { x: current.x - 1, y: current.y },
       northeast: { x: current.x, y: current.y - 1 },
@@ -1736,7 +1754,6 @@ export default function BlockGardenWorld() {
           ref={canvasRef}
           className={`world-canvas mode-${mode}${isWalking ? " is-walking" : ""}`}
           onPointerDown={chooseTile}
-          aria-busy={isWalking}
           aria-label="Kameranın Mino'yu ortada tuttuğu büyük Mineblok dünyası"
         />
 
@@ -1789,10 +1806,10 @@ export default function BlockGardenWorld() {
             <p className="sr-only" role="status" aria-live="polite">{message}</p>
             {mode === "walk" && (
               <div className="dpad" aria-label="Haritayla aynı yöndeki çapraz yürüme okları">
-                <button type="button" className="dpad-northwest" onClick={() => step("northwest")} aria-label="Sol yukarı yürü" disabled={isWalking}>↖</button>
-                <button type="button" className="dpad-northeast" onClick={() => step("northeast")} aria-label="Sağ yukarı yürü" disabled={isWalking}>↗</button>
-                <button type="button" className="dpad-southwest" onClick={() => step("southwest")} aria-label="Sol aşağı yürü" disabled={isWalking}>↙</button>
-                <button type="button" className="dpad-southeast" onClick={() => step("southeast")} aria-label="Sağ aşağı yürü" disabled={isWalking}>↘</button>
+                <button type="button" className="dpad-northwest" onClick={() => step("northwest")} aria-label="Sol yukarı yürü">↖</button>
+                <button type="button" className="dpad-northeast" onClick={() => step("northeast")} aria-label="Sağ yukarı yürü">↗</button>
+                <button type="button" className="dpad-southwest" onClick={() => step("southwest")} aria-label="Sol aşağı yürü">↙</button>
+                <button type="button" className="dpad-southeast" onClick={() => step("southeast")} aria-label="Sağ aşağı yürü">↘</button>
               </div>
             )}
             <button
@@ -1831,24 +1848,24 @@ export default function BlockGardenWorld() {
             <button
               type="button"
               className={mode === "walk" ? "tool-button active" : "tool-button"}
-              onClick={() => { setMode("walk"); setMessage("Gitmek istediğin yere dokun"); }}
-              disabled={!started || isWalking}
+              onClick={() => { stopWalking(); setMode("walk"); setMessage("Gitmek istediğin yere dokun"); }}
+              disabled={!started}
             >
               <span aria-hidden="true">👣</span><strong>GEZ</strong>
             </button>
             <button
               type="button"
               className={mode === "build" ? "tool-button active" : "tool-button"}
-              onClick={() => { setMode("build"); setMessage("Blok koymak için dünyaya dokun"); }}
-              disabled={!started || isWalking}
+              onClick={() => { stopWalking(); setMode("build"); setMessage("Blok koymak için dünyaya dokun"); }}
+              disabled={!started}
             >
               <span className="block-icon" aria-hidden="true" /><strong>YAP</strong>
             </button>
             <button
               type="button"
               className={mode === "remove" ? "tool-button active remove" : "tool-button remove"}
-              onClick={() => { setMode("remove"); setMessage("Geri almak istediğin bloğa dokun"); }}
-              disabled={!started || isWalking}
+              onClick={() => { stopWalking(); setMode("remove"); setMessage("Geri almak istediğin bloğa dokun"); }}
+              disabled={!started}
             >
               <span aria-hidden="true">🧺</span><strong>GERİ AL</strong>
             </button>

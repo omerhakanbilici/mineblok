@@ -94,7 +94,7 @@ button:focus-visible {
 }
 
 .world-canvas.is-walking {
-  cursor: progress;
+  cursor: pointer;
 }
 
 .scene-topbar {

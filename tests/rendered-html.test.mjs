@@ -46,11 +46,13 @@ test("server-renders the full-screen block world HUD", async () => {
 });
 
 test("keeps camera, creatures, combat, and every control inside the game scene", async () => {
-  const [game, css, page, layout] = await Promise.all([
+  const [game, css, page, layout, readme, agentGuide] = await Promise.all([
     readFile(new URL("../app/BlockGardenWorld.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/world.css", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../README.md", import.meta.url), "utf8"),
+    readFile(new URL("../AGENTS.md", import.meta.url), "utf8"),
   ]);
 
   assert.match(game, /const WORLD_SIZE = 100;/);
@@ -79,6 +81,16 @@ test("keeps camera, creatures, combat, and every control inside the game scene",
   assert.match(game, /const removeAnimalNear = useCallback/);
   assert.match(game, /const strikeEnemy = useCallback/);
   assert.match(game, /const swingSword = useCallback/);
+  assert.match(game, /const stopWalking = useCallback/);
+  assert.match(game, /const anchor = progress >= 0\.5 \? motion\.to : motion\.from;/);
+  assert.match(game, /const start = stopWalking\(\);/);
+  assert.match(game, /const current = stopWalking\(\);/);
+  assert.match(game, /onClick=\{\(\) => \{ stopWalking\(\); setMode\("walk"\);/);
+  assert.match(game, /onClick=\{\(\) => \{ stopWalking\(\); setMode\("build"\);/);
+  assert.match(game, /onClick=\{\(\) => \{ stopWalking\(\); setMode\("remove"\);/);
+  assert.doesNotMatch(game, /disabled=\{isWalking\}/);
+  assert.doesNotMatch(game, /disabled=\{!started \|\| isWalking\}/);
+  assert.doesNotMatch(game, /if \(walkRef\.current\) \{[\s\S]{0,160}Mino yürüyor/);
   assert.match(game, /healthRef\.current - CONTACT_DAMAGE/);
   assert.match(
     game,
@@ -98,12 +110,19 @@ test("keeps camera, creatures, combat, and every control inside the game scene",
 
   assert.match(css, /\.game-shell,[\s\S]*\.world-card[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;/);
   assert.match(css, /\.world-canvas[\s\S]*width:\s*100%;[\s\S]*height:\s*100%;/);
+  assert.match(css, /\.world-canvas\.is-walking\s*\{[\s\S]*cursor:\s*pointer;/);
   assert.match(css, /\.tool-dock[\s\S]*position:\s*absolute;/);
   assert.match(css, /\.sword-button[\s\S]*position:\s*absolute;/);
   assert.match(css, /\.health-goal\.danger/);
   assert.match(css, /\.scene-topbar[\s\S]*justify-content:\s*space-between;/);
   assert.match(page, /import BlockGardenWorld from "\.\/BlockGardenWorld";/);
   assert.match(layout, /import "\.\/world\.css";/);
+  assert.match(readme, /### Kesilebilir hareket/);
+  assert.match(readme, /https:\/\/mineblok\.hakanbil\.chatgpt\.site\//);
+  assert.match(readme, /npm test/);
+  assert.match(agentGuide, /Never reintroduce `disabled=\{isWalking\}`/);
+  assert.match(agentGuide, /## Interruptible movement state machine/);
+  assert.match(agentGuide, /Deploy privately|deploy privately/);
 
   await assert.rejects(access(new URL("../app/BlockGardenGame.tsx", import.meta.url)));
   await assert.rejects(access(new URL("../app/globals.css", import.meta.url)));

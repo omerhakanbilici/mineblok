@@ -1,100 +1,134 @@
-# vinext-starter
+# Mineblok
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Mineblok, küçük çocukların tek başına veya bir yetişkinle oynayabilmesi için hazırlanmış, Türkçe ve tam ekran çalışan bir blok dünyası oyunudur. Oyuncu 100 × 100 blokluk dünyayı gezer, yıldız toplar, blok ekleyip kaldırır, hayvanlarla karşılaşır ve kırmızı düşmanlara karşı kılıcını kullanır.
 
-## Prerequisites
+Canlı sürüm: [mineblok.hakanbil.chatgpt.site](https://mineblok.hakanbil.chatgpt.site/)
+
+## Oyunun özellikleri
+
+- Oyuncuyu ekranda tutan, hareketle beraber kayan kamera
+- Fare, dokunma, yön paneli, ok tuşları ve WASD ile hareket
+- Kareden kareye akıcı yürüyüş; çıkış ve iniş için farklı beden hareketleri
+- Kesintisiz yıldız toplama ve ekranda toplam yıldız sayacı
+- Koyun, civciv, inek, domuz ve tavşanlardan oluşan hareketli hayvanlar
+- 100 canla başlayan, kırmızı düşmanlara karşı çalışan basit savaş sistemi
+- Blok ekleme ve geri alma modları
+- Tamamen Canvas 2D ile çizilen Minecraft esintili karakterler ve dünya
+- Masaüstü ve mobil ekranlara uyumlu, oyun alanının içinde kalan kontroller
+
+## Kontroller
+
+| Eylem | Fare / dokunma | Klavye |
+| --- | --- | --- |
+| Bir yere git | Haritadaki hedef bloğa bas | Ok tuşları veya WASD |
+| Bir blok ilerle | Sol alttaki yön paneline bas | Ok tuşları veya WASD |
+| Kılıç kullan | Sağ alttaki **KILIÇ** düğmesine bas | Boşluk tuşu |
+| Mod değiştir | **GEZ**, **YAP** veya **GERİ AL** düğmesine bas | — |
+| Blok seç | **YAP** modunda açılan renklerden birini seç | — |
+| Ses, sıfırlama, tam ekran | Sağ üstteki düğmeleri kullan | — |
+
+### Kesilebilir hareket
+
+Uzak bir bloğa basıldığında Mino hedefe doğru yol bulur; fakat oyuncu kontrolü hiçbir zaman kilitlenmez. Yürürken yeni bir harita noktası seçmek, yön paneline basmak, klavyeden başka bir yön vermek, mod değiştirmek veya kılıcı kullanmak mevcut yürüyüşü hemen keser. Mino en yakın kareye yerleşir ve yeni komutu uygular. Hareket sırasında hiçbir oyun düğmesi devre dışı bırakılmamalıdır.
+
+## Savaş kuralları
+
+- Mino'nun kılıcı menzil içindeki hayvanlara otomatik olarak vurur.
+- Kırmızı bir düşmana hemen vurmak için **KILIÇ** düğmesi veya boşluk tuşu kullanılabilir.
+- Oyuncu düşmanın yanında beklerse ilk saldırıyı düşman yapar: 1200 ms sonra 2 can eksilir.
+- Mino, düşmanın ilk vuruşundan 520 ms sonra otomatik karşılık verir.
+- Hayvanlar ve düşmanlar tek vuruşta toz efektiyle kaybolur.
+- Can sıfıra inerse Mino başlangıç noktasına dönüp yeniden 100 canla devam eder.
+
+Bu oyun 4 yaş civarındaki çocuklar düşünülerek tasarlandığı için savaş görsel olarak yumuşaktır; kan, yara veya korkutucu içerik yoktur.
+
+## Yerelde çalıştırma
+
+Gerekenler:
 
 - Node.js `>=22.13.0`
+- npm
 
-## Quick Start
+Kurulum ve geliştirme:
 
 ```bash
 npm install
 npm run dev
-npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+Geliştirme sunucusu varsayılan olarak `http://localhost:3000/` adresinde açılır.
 
-## Included Shape
+## Doğrulama
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+Bir değişiklikten sonra ikisini de çalıştırın:
 
-## Workspace Auth Headers
-
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
-
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm test
+npm run lint
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+`npm test` önce üretim derlemesini oluşturur, sonra sunucu tarafından üretilen HTML'i ve oyunun önemli kaynak sözleşmelerini kontrol eder. Büyük bir görsel değişiklikte oyunu hem geniş masaüstü görünümünde hem de dar mobil görünümünde ayrıca elle deneyin.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## Teknik yapı
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+- React 19 + TypeScript
+- vinext ve Vite
+- HTML Canvas 2D çizim döngüsü
+- Web Audio API ile kısa, üretilmiş ses efektleri
+- Cloudflare Workers tabanlı OpenAI Sites barındırması
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+Oyunun veritabanı veya kullanıcı hesabına bağlı kalıcı kaydı yoktur. Dünya, canlılar, can ve yıldız sayısı sayfa belleğinde tutulur; yenileme veya sıfırlama yeni bir oyun başlatır.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+### Önemli dosyalar
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+| Dosya | Sorumluluk |
+| --- | --- |
+| `app/BlockGardenWorld.tsx` | Dünya üretimi, hareket, kamera, çizim, canlılar, savaş, giriş kontrolleri ve HUD |
+| `app/world.css` | Tam ekran yerleşim, oyun içi kontroller ve responsive görünüm |
+| `app/page.tsx` | Ana sayfaya oyunu bağlar |
+| `app/layout.tsx` | Sayfa metadatası ve global stil bağlantısı |
+| `tests/rendered-html.test.mjs` | Derlenmiş sayfa ve kritik oyun davranışları için regresyon kontrolleri |
+| `.openai/hosting.json` | Var olan Sites projesinin kimliği ve kaynak tanımı |
+| `AGENTS.md` | Bu projede çalışacak AI agentlar için davranış ve yayınlama sözleşmesi |
 
-## Useful Commands
+### Mimari özeti
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+Dünya koordinatları `{ x, y }`, karakter ve kamera koordinatları `{ x, y, z }` biçimindedir. `world[y][x]` bir blok sütunudur; dizinin son elemanı görünen yüzeydir. İzometrik ekran konumu `tileCenter` ile hesaplanır.
 
-## Learn More
+Animasyonun her karesinde sık değişen veriler `useRef` içinde tutulur. React state yalnızca HUD veya DOM görünümünün yeniden çizilmesi gerektiğinde kullanılır. Bu ayrım, Canvas animasyonunun her karede React render tetiklemesini önler.
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Hareket akışı şöyledir:
+
+1. Hedef, `findWalkingPath` ile yürünebilir komşu karelere ayrılır.
+2. `walkRef` o anki kareler arası geçişi ve süresini saklar.
+3. Çizim döngüsü karakter ile kamerayı birlikte yumuşatır.
+4. Yeni komut gelirse `stopWalking` geçişin ilerlemesine göre en yakın kareyi seçer.
+5. Yeni yol veya eylem bu sabit kareden başlar.
+
+Sahne çizim sırası derinlik hissi için önemlidir: arazi ve dekorlar, yıldızlar/canlılar/düşmanlar, toz efektleri ve oyuncu ekran derinliğine göre sıralanır. Yeni bir dünya nesnesi eklerken bu sıralamayı koruyun.
+
+## Değişiklik yaparken korunacak davranışlar
+
+- Hareket sırasında kontrolleri `disabled` yapmayın.
+- Devam eden yürüyüş varken yeni hedefi görmezden gelmeyin; `stopWalking` üzerinden kesip yeni komutu başlatın.
+- Fare ve dokunma için ortak Pointer Events akışını koruyun.
+- Karakter ve kamera hareketini aynı dünya pozisyonundan üretin.
+- Oyun metinlerini Türkçe, kısa ve küçük bir çocuğun anlayacağı biçimde tutun.
+- Savaş görsellerini oyuncak benzeri ve şiddetsiz tutun.
+- Yıldız toplama için bir bitiş koşulu eklemeyin; sayaç artmaya devam etmelidir.
+- Var olan `.openai/hosting.json` proje kimliğini koruyun; yeni bir Sites projesi oluşturmayın.
+
+Daha ayrıntılı uygulama sözleşmesi için [AGENTS.md](./AGENTS.md) dosyasını okuyun.
+
+## Yayınlama
+
+Bu depo mevcut Mineblok Sites projesine bağlıdır. Yayınlama yapan agent veya geliştirici:
+
+1. `npm test` ve `npm run lint` çalıştırır.
+2. Yalnızca amaçlanan dosyaları commit eder ve Sites kaynak deposuna aynı commit SHA'sını gönderir.
+3. Sites paketleme yardımcısıyla aynı çalışma ağacından arşiv üretir.
+4. `.openai/hosting.json` içindeki mevcut `project_id` için yeni site sürümünü kaydeder.
+5. Sürümü **private** olarak yayınlar ve durum `succeeded` olana kadar kontrol eder.
+6. Canlı adresi açıp teslim eder.
+
+Kimlik bilgilerini, geçici kaynak-depo erişim anahtarlarını veya yayın tokenlarını dosyaya, loga ya da dokümantasyona yazmayın.
