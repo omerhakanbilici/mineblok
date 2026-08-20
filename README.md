@@ -2,7 +2,9 @@
 
 Mineblok, küçük çocukların tek başına veya bir yetişkinle oynayabilmesi için hazırlanmış, Türkçe ve tam ekran çalışan bir blok dünyası oyunudur. Oyuncu 100 × 100 blokluk dünyayı gezer, yıldız toplar, blok ekleyip kaldırır, hayvanlarla karşılaşır ve kırmızı düşmanlara karşı kılıcını kullanır.
 
-Canlı sürüm: [mineblok.hakanbil.chatgpt.site](https://mineblok.hakanbil.chatgpt.site/)
+Ana canlı sürüm: [mineblok.hakanbil.chatgpt.site](https://mineblok.hakanbil.chatgpt.site/)
+
+Kaynak kod: [github.com/omerhakanbilici/mineblok](https://github.com/omerhakanbilici/mineblok)
 
 Site herkese açıktır. Oyuncular ChatGPT hesabı açmadan veya giriş yapmadan misafir olarak doğrudan oynayabilir. Oyunda kullanıcı hesabı, backend ya da sunucuda tutulan kişisel veri bulunmaz.
 
@@ -66,10 +68,11 @@ Bir değişiklikten sonra ikisini de çalıştırın:
 
 ```bash
 npm test
+npm run test:render
 npm run lint
 ```
 
-`npm test` önce üretim derlemesini oluşturur, sonra sunucu tarafından üretilen HTML'i ve oyunun önemli kaynak sözleşmelerini kontrol eder. Büyük bir görsel değişiklikte oyunu hem geniş masaüstü görünümünde hem de dar mobil görünümünde ayrıca elle deneyin.
+`npm test` Sites/Cloudflare üretim derlemesini ve sunucu HTML'ini kontrol eder. `npm run test:render` Render için statik dışa aktarmayı üretir; `dist/client/index.html` ile referans verdiği tüm asset dosyalarını doğrular. Büyük bir görsel değişiklikte oyunu hem geniş masaüstü görünümünde hem de dar mobil görünümünde ayrıca elle deneyin.
 
 ## Teknik yapı
 
@@ -78,6 +81,7 @@ npm run lint
 - HTML Canvas 2D çizim döngüsü
 - Web Audio API ile kısa, üretilmiş ses efektleri
 - Cloudflare Workers tabanlı OpenAI Sites barındırması
+- Render Static Site üzerinde ikinci, sunucusuz yayın hedefi
 
 Oyunun veritabanı veya kullanıcı hesabına bağlı kalıcı kaydı yoktur. Dünya, canlılar, can ve yıldız sayısı sayfa belleğinde tutulur; yenileme veya sıfırlama yeni bir oyun başlatır.
 
@@ -90,7 +94,9 @@ Oyunun veritabanı veya kullanıcı hesabına bağlı kalıcı kaydı yoktur. D�
 | `app/page.tsx` | Ana sayfaya oyunu bağlar |
 | `app/layout.tsx` | Sayfa metadatası ve global stil bağlantısı |
 | `tests/rendered-html.test.mjs` | Derlenmiş sayfa ve kritik oyun davranışları için regresyon kontrolleri |
+| `tests/render-static.test.mjs` | Render statik çıktısının HTML ve asset bütünlüğünü kontrol eder |
 | `.openai/hosting.json` | Var olan Sites projesinin kimliği ve kaynak tanımı |
+| `render.yaml` | Render Static Site build, yayın dizini ve otomatik deploy tanımı |
 | `AGENTS.md` | Bu projede çalışacak AI agentlar için davranış ve yayınlama sözleşmesi |
 
 ### Mimari özeti
@@ -122,7 +128,14 @@ Sahne çizim sırası derinlik hissi için önemlidir: arazi ve dekorlar, yıld�
 
 Daha ayrıntılı uygulama sözleşmesi için [AGENTS.md](./AGENTS.md) dosyasını okuyun.
 
-## Yayınlama
+## İki farklı build hedefi
+
+- `npm run build`: Mevcut OpenAI Sites/Cloudflare Worker paketini üretir.
+- `npm run build:render`: `RENDER_STATIC_EXPORT=true` ile tamamen statik sürümü üretir. Render'ın yayın dizini `dist/client` olur.
+
+Render koşulu `next.config.ts` içindeki `output: "export"` ayarını yalnızca statik build sırasında açar. `vite.config.ts` de bu build sırasında Sites ve Cloudflare eklentilerini devre dışı bırakır. Bu ayrımı kaldırmayın; aksi halde bir yayın hedefini düzeltirken diğerini bozabilirsiniz.
+
+## Sites'a yayınlama
 
 Bu depo mevcut Mineblok Sites projesine bağlıdır. Yayınlama yapan agent veya geliştirici:
 
@@ -134,3 +147,13 @@ Bu depo mevcut Mineblok Sites projesine bağlıdır. Yayınlama yapan agent veya
 6. Canlı adresi açıp teslim eder.
 
 Mineblok misafir erişimine açık kalmalıdır; kullanıcı açıkça istemedikçe siteyi yeniden giriş zorunlu veya private hale getirmeyin. Kimlik bilgilerini, geçici kaynak-depo erişim anahtarlarını veya yayın tokenlarını dosyaya, loga ya da dokümantasyona yazmayın.
+
+## Render'a yayınlama
+
+`render.yaml`, GitHub'daki `omerhakanbilici/mineblok` reposunun `main` dalını ücretsiz bir Static Site olarak tanımlar:
+
+- Build komutu: `npm run build:render`
+- Yayın dizini: `dist/client`
+- Otomatik yayın: `main` dalına gelen her commit
+
+İlk Render servisi dashboard üzerinden bu Blueprint veya aynı değerlerle oluşturulur. GitHub bağlantısı kurulduktan sonra sonraki Mineblok commit'leri Render'a otomatik deploy edilir. Oyun backend kullanmadığı için Free Web Service açmayın; Static Site kullanın.

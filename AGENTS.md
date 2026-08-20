@@ -134,14 +134,30 @@ Use Node.js `>=22.13.0` and run:
 
 ```bash
 npm test
+npm run test:render
 npm run lint
 git diff --check
 git status --short
 ```
 
-`npm test` performs a production build before the Node test suite. Add a focused regression assertion when changing a critical behavior, but avoid assertions tied to incidental formatting.
+`npm test` validates the Sites/Cloudflare build. `npm run test:render` validates the separate static export and every built asset referenced by its HTML. Add a focused regression assertion when changing a critical behavior, but avoid assertions tied to incidental formatting.
 
 For meaningful interaction or layout changes, also start `npm run dev`, open `http://localhost:3000/`, and exercise the changed path. Preserve unrelated user changes and review the final diff before committing.
+
+## Dual deployment build contract
+
+Mineblok has two intentionally separate production targets:
+
+- `npm run build` keeps the existing Sites/Cloudflare Worker output.
+- `npm run build:render` sets `RENDER_STATIC_EXPORT=true` and produces the Render Static Site in `dist/client`.
+
+Keep the conditional `output: "export"` in `next.config.ts` and the conditional Sites/Cloudflare plugins in `vite.config.ts`. Never make static export the unconditional default: that would break the Sites packaging contract. Never publish `dist/server` as the Render Static Site directory.
+
+`render.yaml` is the authoritative Render configuration. It must continue to use the personal public repository `https://github.com/omerhakanbilici/mineblok`, branch `main`, build command `npm run build:render`, publish path `./dist/client`, and commit-triggered auto deploy. Do not switch the repository owner to an organization.
+
+## Render publishing workflow
+
+The initial service is a free Render Static Site, not a Free Web Service. Connect Render to the personal GitHub repository, create/sync the root `render.yaml` Blueprint, and verify the final `onrender.com` URL. After the initial connection, pushes to `main` should deploy automatically. OAuth or Google sign-in must be completed by the user; never request or store credentials.
 
 ## Sites publishing workflow
 

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: mineblok
+    runtime: static
+    repo: https://github.com/omerhakanbilici/mineblok
+    branch: main
+    buildCommand: npm run build:render
+    staticPublishPath: ./dist/client
+    autoDeployTrigger: commit
