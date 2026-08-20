@@ -6,7 +6,7 @@ Read `README.md` before changing the project. This file is the implementation co
 
 Mineblok is a Turkish, child-friendly block-world playground designed to be understandable to a four-year-old. It should feel playful, forgiving, colorful, and immediately usable with touch. Combat is toy-like: there is no blood, injury detail, frightening copy, or graphic effect.
 
-The live site is `https://mineblok.hakanbil.chatgpt.site/`. The existing Sites project ID is declared in `.openai/hosting.json`; reuse it. Do not create a replacement project when updating this game.
+The live site is `https://mineblok.hakanbil.chatgpt.site/`. It is intentionally public so guests can play without ChatGPT sign-in. The game has no account-dependent backend or server-side personal data. The existing Sites project ID is declared in `.openai/hosting.json`; reuse it. Do not create a replacement project when updating this game.
 
 ## Non-negotiable behavior
 
@@ -18,6 +18,7 @@ The live site is `https://mineblok.hakanbil.chatgpt.site/`. The existing Sites p
 - On interruption, settle Mino on the nearest grid cell before starting the next command.
 - Keep Pointer Events as the shared mouse and touch input path.
 - UI copy remains short, friendly, and Turkish.
+- Guest access remains public and does not require ChatGPT sign-in.
 - Stars spawn indefinitely and the counter has no win threshold.
 - Animals wander around distributed areas of the world.
 - Enemies are visually distinct in red and combat remains non-graphic.
@@ -153,11 +154,11 @@ This project contains `.openai/hosting.json`, so use the Sites building and Site
 5. Push the exact committed `HEAD` to the provided source repository and branch.
 6. Package this exact checkout with the Sites `package-site.sh` helper.
 7. Save a new version for the existing `project_id`, using the exact commit SHA and archive.
-8. Deploy privately.
+8. Deploy to the existing public access level; the user's explicit guest-access decision authorizes public deployment for Mineblok updates.
 9. Poll deployment status until it succeeds or fails.
 10. Open the live Mineblok URL, then stop the local server.
 
-Do not write credentials into git configuration, shell history artifacts, project files, test fixtures, logs, or documentation. Do not publish publicly unless the user explicitly requests that access change.
+Do not write credentials into git configuration, shell history artifacts, project files, test fixtures, logs, or documentation. Do not make Mineblok private or add a sign-in gate unless the user explicitly requests that access change.
 
 ## Documentation maintenance
 

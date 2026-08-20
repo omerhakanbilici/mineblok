@@ -122,7 +122,8 @@ test("keeps camera, creatures, combat, and every control inside the game scene",
   assert.match(readme, /npm test/);
   assert.match(agentGuide, /Never reintroduce `disabled=\{isWalking\}`/);
   assert.match(agentGuide, /## Interruptible movement state machine/);
-  assert.match(agentGuide, /Deploy privately|deploy privately/);
+  assert.match(agentGuide, /guests can play without ChatGPT sign-in/);
+  assert.match(agentGuide, /Deploy to the existing public access level/);
 
   await assert.rejects(access(new URL("../app/BlockGardenGame.tsx", import.meta.url)));
   await assert.rejects(access(new URL("../app/globals.css", import.meta.url)));

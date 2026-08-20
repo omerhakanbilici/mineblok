@@ -4,6 +4,8 @@ Mineblok, küçük çocukların tek başına veya bir yetişkinle oynayabilmesi 
 
 Canlı sürüm: [mineblok.hakanbil.chatgpt.site](https://mineblok.hakanbil.chatgpt.site/)
 
+Site herkese açıktır. Oyuncular ChatGPT hesabı açmadan veya giriş yapmadan misafir olarak doğrudan oynayabilir. Oyunda kullanıcı hesabı, backend ya da sunucuda tutulan kişisel veri bulunmaz.
+
 ## Oyunun özellikleri
 
 - Oyuncuyu ekranda tutan, hareketle beraber kayan kamera
@@ -128,7 +130,7 @@ Bu depo mevcut Mineblok Sites projesine bağlıdır. Yayınlama yapan agent veya
 2. Yalnızca amaçlanan dosyaları commit eder ve Sites kaynak deposuna aynı commit SHA'sını gönderir.
 3. Sites paketleme yardımcısıyla aynı çalışma ağacından arşiv üretir.
 4. `.openai/hosting.json` içindeki mevcut `project_id` için yeni site sürümünü kaydeder.
-5. Sürümü **private** olarak yayınlar ve durum `succeeded` olana kadar kontrol eder.
+5. Mevcut **public** erişimi koruyarak yayınlar ve durum `succeeded` olana kadar kontrol eder.
 6. Canlı adresi açıp teslim eder.
 
-Kimlik bilgilerini, geçici kaynak-depo erişim anahtarlarını veya yayın tokenlarını dosyaya, loga ya da dokümantasyona yazmayın.
+Mineblok misafir erişimine açık kalmalıdır; kullanıcı açıkça istemedikçe siteyi yeniden giriş zorunlu veya private hale getirmeyin. Kimlik bilgilerini, geçici kaynak-depo erişim anahtarlarını veya yayın tokenlarını dosyaya, loga ya da dokümantasyona yazmayın.
