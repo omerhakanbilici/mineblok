@@ -20,7 +20,13 @@ type WalkMotion = {
   duration: number;
   remaining: Point[];
 };
-type AnimalKind = "sheep" | "chick";
+type PlayerPose = {
+  walking: boolean;
+  stepProgress: number;
+  elevationDelta: number;
+};
+type StarState = Point & { id: string };
+type AnimalKind = "sheep" | "chick" | "cow" | "pig" | "rabbit";
 type AnimalMotion = {
   from: Point;
   to: Point;
@@ -47,17 +53,34 @@ type Metrics = {
   camera: WorldPosition;
 };
 
-const STARS = [
-  { id: "gunes", x: 46, y: 48 },
-  { id: "bulut", x: 56, y: 47 },
-  { id: "cicek", x: 54, y: 57 },
-];
-
-const ANIMAL_SPAWNS = [
-  { id: "koyun-1", kind: "sheep" as const, x: 53, y: 49, greeting: "Koyun: Mee!" },
-  { id: "koyun-2", kind: "sheep" as const, x: 47, y: 53, greeting: "Koyun: Mee!" },
-  { id: "koyun-3", kind: "sheep" as const, x: 57, y: 55, greeting: "Koyun: Mee!" },
-  { id: "civciv", kind: "chick" as const, x: 49, y: 46, greeting: "Civciv: Cik cik!" },
+const ANIMAL_SPAWNS: Array<{
+  id: string;
+  kind: AnimalKind;
+  x: number;
+  y: number;
+  greeting: string;
+}> = [
+  { id: "koyun-merkez", kind: "sheep", x: 53, y: 49, greeting: "Koyun: Mee!" },
+  { id: "civciv-merkez", kind: "chick", x: 49, y: 46, greeting: "Civciv: Cik cik!" },
+  { id: "domuz-merkez", kind: "pig", x: 56, y: 54, greeting: "Domuzcuk: Oink!" },
+  { id: "tavsan-merkez", kind: "rabbit", x: 44, y: 54, greeting: "Tavşan: Pıt pıt!" },
+  { id: "inek-kuzeybati", kind: "cow", x: 18, y: 20, greeting: "İnek: Möö!" },
+  { id: "koyun-kuzey", kind: "sheep", x: 32, y: 25, greeting: "Koyun: Mee!" },
+  { id: "tavsan-kuzey", kind: "rabbit", x: 49, y: 18, greeting: "Tavşan: Pıt pıt!" },
+  { id: "domuz-kuzeydogu", kind: "pig", x: 70, y: 22, greeting: "Domuzcuk: Oink!" },
+  { id: "inek-kuzeydogu", kind: "cow", x: 84, y: 18, greeting: "İnek: Möö!" },
+  { id: "civciv-bati", kind: "chick", x: 20, y: 45, greeting: "Civciv: Cik cik!" },
+  { id: "inek-bati", kind: "cow", x: 37, y: 43, greeting: "İnek: Möö!" },
+  { id: "domuz-dogu", kind: "pig", x: 69, y: 42, greeting: "Domuzcuk: Oink!" },
+  { id: "tavsan-dogu", kind: "rabbit", x: 86, y: 46, greeting: "Tavşan: Pıt pıt!" },
+  { id: "koyun-guneybati", kind: "sheep", x: 17, y: 70, greeting: "Koyun: Mee!" },
+  { id: "inek-guneybati", kind: "cow", x: 34, y: 67, greeting: "İnek: Möö!" },
+  { id: "civciv-guney", kind: "chick", x: 56, y: 70, greeting: "Civciv: Cik cik!" },
+  { id: "domuz-guneydogu", kind: "pig", x: 75, y: 66, greeting: "Domuzcuk: Oink!" },
+  { id: "tavsan-uzak-guneydogu", kind: "rabbit", x: 88, y: 78, greeting: "Tavşan: Pıt pıt!" },
+  { id: "koyun-uzak-guneybati", kind: "sheep", x: 27, y: 86, greeting: "Koyun: Mee!" },
+  { id: "inek-uzak-guney", kind: "cow", x: 52, y: 84, greeting: "İnek: Möö!" },
+  { id: "domuz-uzak-guneydogu", kind: "pig", x: 74, y: 88, greeting: "Domuzcuk: Oink!" },
 ];
 
 const BUILD_BLOCKS: Array<{ kind: BuildBlock; label: string; color: string; emoji: string }> = [
@@ -78,7 +101,7 @@ const BLOCK_COLORS: Record<BlockKind, { top: string; left: string; right: string
 };
 
 const RESERVED_CELLS = new Set(
-  [START_POINT, ...STARS, ...ANIMAL_SPAWNS].map((point) => `${point.x},${point.y}`),
+  [START_POINT, ...ANIMAL_SPAWNS].map((point) => `${point.x},${point.y}`),
 );
 
 function pseudoRandom(x: number, y: number) {
@@ -99,6 +122,7 @@ function makeInitialWorld(): World {
         Math.sin((x + y) * 0.085) * 0.58;
       let height = rolling > 1.15 ? 3 : rolling > 0.15 ? 2 : 1;
       if (distanceFromStart < 5) height = 1;
+      if (ANIMAL_SPAWNS.some((animal) => Math.hypot(x - animal.x, y - animal.y) < 2.4)) height = 1;
       if (RESERVED_CELLS.has(`${x},${y}`)) height = 1;
 
       const biome = pseudoRandom(Math.floor(x / 4), Math.floor(y / 4));
@@ -118,6 +142,43 @@ function makeAnimals(): AnimalState[] {
     motion: null,
     nextMoveAt: 1200 + index * 650,
   }));
+}
+
+function findStarSpot(
+  world: World,
+  origin: Point | null,
+  occupied: Point[],
+): Point | null {
+  for (let attempt = 0; attempt < 700; attempt += 1) {
+    let x: number;
+    let y: number;
+    if (origin) {
+      const radius = 4 + Math.floor(Math.random() * 13);
+      const angle = Math.random() * Math.PI * 2;
+      x = Math.round(origin.x + Math.cos(angle) * radius);
+      y = Math.round(origin.y + Math.sin(angle) * radius);
+    } else {
+      x = 4 + Math.floor(Math.random() * (WORLD_SIZE - 8));
+      y = 4 + Math.floor(Math.random() * (WORLD_SIZE - 8));
+    }
+    if (x < 2 || y < 2 || x >= WORLD_SIZE - 2 || y >= WORLD_SIZE - 2) continue;
+    if (world[y][x].length === 0) continue;
+    if (Math.hypot(x - START_POINT.x, y - START_POINT.y) < 2.5) continue;
+    if (occupied.some((point) => point.x === x && point.y === y)) continue;
+    if (ANIMAL_SPAWNS.some((animal) => animal.x === x && animal.y === y)) continue;
+    return { x, y };
+  }
+  return null;
+}
+
+function makeInitialStars(world: World): StarState[] {
+  const stars: StarState[] = [];
+  for (let index = 0; index < 24; index += 1) {
+    const origin = index < 7 ? START_POINT : null;
+    const point = findStarSpot(world, origin, stars);
+    if (point) stars.push({ ...point, id: `ilk-yildiz-${index}` });
+  }
+  return stars;
 }
 
 function polygon(
@@ -352,13 +413,16 @@ function drawVoxelPlayer(
   center: ScreenPoint,
   metrics: Metrics,
   time: number,
-  walking: boolean,
+  pose: PlayerPose,
 ) {
   const unit = metrics.tileW / 105;
-  const phase = walking ? Math.sin(time * 0.02) : 0;
-  const bounce = walking ? Math.abs(Math.sin(time * 0.02)) * 2.2 * unit : 0;
+  const phase = pose.walking ? Math.sin(time * 0.02) : 0;
+  const stepArc = pose.walking ? Math.sin(Math.PI * pose.stepProgress) : 0;
+  const bounce = pose.walking ? Math.abs(Math.sin(time * 0.02)) * 1.5 * unit : 0;
+  const climbLift = pose.elevationDelta > 0 ? stepArc * 8 * unit : 0;
+  const descentCrouch = pose.elevationDelta < 0 ? stepArc * 6 * unit : 0;
   const surfaceY = center.y + metrics.tileH * 0.03;
-  const groundY = surfaceY - bounce;
+  const groundY = surfaceY - bounce - climbLift;
 
   context.fillStyle = "rgba(21, 47, 32, 0.26)";
   context.beginPath();
@@ -370,12 +434,13 @@ function drawVoxelPlayer(
   const rightShoeBottom = groundY - Math.max(0, -phase) * 3 * unit;
   const leftLegBottom = leftShoeBottom - shoeHeight;
   const rightLegBottom = rightShoeBottom - shoeHeight;
-  drawCuboid(context, center.x - 8 * unit + phase * 3 * unit, leftLegBottom, 12 * unit, 31 * unit, 4 * unit, {
+  const legHeight = (31 - descentCrouch / unit) * unit;
+  drawCuboid(context, center.x - 8 * unit + phase * 3 * unit, leftLegBottom, 12 * unit, legHeight, 4 * unit, {
     front: "#315f9f",
     side: "#21497e",
     top: "#4779b7",
   });
-  drawCuboid(context, center.x + 8 * unit - phase * 3 * unit, rightLegBottom, 12 * unit, 31 * unit, 4 * unit, {
+  drawCuboid(context, center.x + 8 * unit - phase * 3 * unit, rightLegBottom, 12 * unit, legHeight, 4 * unit, {
     front: "#315f9f",
     side: "#21497e",
     top: "#4779b7",
@@ -391,18 +456,21 @@ function drawVoxelPlayer(
     top: "#655f59",
   });
 
-  const bodyBottom = groundY - 29 * unit;
+  const bodyBottom = groundY - 29 * unit + descentCrouch;
   drawCuboid(context, center.x, bodyBottom, 29 * unit, 39 * unit, 7 * unit, {
     front: "#3c9ea5",
     side: "#25747d",
     top: "#62bbc0",
   });
-  drawCuboid(context, center.x - 21 * unit - phase * 3 * unit, bodyBottom - 2 * unit, 9 * unit, 36 * unit, 3 * unit, {
+  const armSpread = pose.elevationDelta < 0 ? stepArc * 5 * unit : 0;
+  const leftArmLift = pose.elevationDelta > 0 ? Math.max(0, phase) * 11 * unit + stepArc * 4 * unit : 0;
+  const rightArmLift = pose.elevationDelta > 0 ? Math.max(0, -phase) * 11 * unit + stepArc * 4 * unit : 0;
+  drawCuboid(context, center.x - 21 * unit - phase * 3 * unit - armSpread, bodyBottom - 2 * unit - leftArmLift, 9 * unit, 36 * unit, 3 * unit, {
     front: "#d9a06d",
     side: "#aa724a",
     top: "#efbd8b",
   });
-  drawCuboid(context, center.x + 21 * unit + phase * 3 * unit, bodyBottom - 2 * unit, 9 * unit, 36 * unit, 3 * unit, {
+  drawCuboid(context, center.x + 21 * unit + phase * 3 * unit + armSpread, bodyBottom - 2 * unit - rightArmLift, 9 * unit, 36 * unit, 3 * unit, {
     front: "#d9a06d",
     side: "#aa724a",
     top: "#efbd8b",
@@ -463,7 +531,10 @@ function drawVoxelAnimal(
     });
     context.fillStyle = "#2c2a27";
     context.fillRect(center.x + 31 * unit, groundY - 35 * unit, 4 * unit, 4 * unit);
-  } else {
+    return;
+  }
+
+  if (kind === "chick") {
     drawCuboid(context, center.x, groundY, 24 * unit, 25 * unit, 6 * unit, {
       front: "#ffd84e",
       side: "#d6a72f",
@@ -486,7 +557,88 @@ function drawVoxelAnimal(
     );
     context.fillStyle = "#2c2a27";
     context.fillRect(center.x + 7 * unit, groundY - 38 * unit, 3 * unit, 3 * unit);
+    return;
   }
+
+  if (kind === "cow") {
+    for (const offset of [-16, -5, 10, 19]) {
+      drawCuboid(context, center.x + offset * unit + phase * 1.3 * unit, groundY, 6 * unit, 19 * unit, 2 * unit, {
+        front: "#4b3528",
+        side: "#2f211a",
+        top: "#6b4d3b",
+      });
+    }
+    drawCuboid(context, center.x, groundY - 17 * unit, 49 * unit, 31 * unit, 10 * unit, {
+      front: "#8a5d40",
+      side: "#5d3b2b",
+      top: "#b7825d",
+    });
+    context.fillStyle = "#f2e6ce";
+    context.fillRect(center.x - 19 * unit, groundY - 43 * unit, 16 * unit, 12 * unit);
+    drawCuboid(context, center.x + 31 * unit, groundY - 19 * unit, 24 * unit, 26 * unit, 6 * unit, {
+      front: "#eee3cb",
+      side: "#af987e",
+      top: "#fff4dd",
+    });
+    context.fillStyle = "#2c2723";
+    context.fillRect(center.x + 34 * unit, groundY - 38 * unit, 4 * unit, 4 * unit);
+    polygon(context, [[center.x + 20 * unit, groundY - 45 * unit], [center.x + 15 * unit, groundY - 54 * unit], [center.x + 26 * unit, groundY - 47 * unit]], "#ead6a5", "transparent");
+    polygon(context, [[center.x + 42 * unit, groundY - 45 * unit], [center.x + 48 * unit, groundY - 54 * unit], [center.x + 37 * unit, groundY - 47 * unit]], "#ead6a5", "transparent");
+    return;
+  }
+
+  if (kind === "pig") {
+    for (const offset of [-14, -3, 10, 18]) {
+      drawCuboid(context, center.x + offset * unit + phase * 1.4 * unit, groundY, 5 * unit, 14 * unit, 2 * unit, {
+        front: "#d97b8e",
+        side: "#b95b73",
+        top: "#ef9bab",
+      });
+    }
+    drawCuboid(context, center.x, groundY - 12 * unit, 43 * unit, 27 * unit, 9 * unit, {
+      front: "#f08fa2",
+      side: "#ce677e",
+      top: "#ffaabc",
+    });
+    drawCuboid(context, center.x + 28 * unit, groundY - 13 * unit, 23 * unit, 23 * unit, 6 * unit, {
+      front: "#f59bad",
+      side: "#cf6d82",
+      top: "#ffb6c3",
+    });
+    context.fillStyle = "#bd5d72";
+    context.fillRect(center.x + 34 * unit, groundY - 25 * unit, 10 * unit, 7 * unit);
+    context.fillStyle = "#34292a";
+    context.fillRect(center.x + 31 * unit, groundY - 32 * unit, 3 * unit, 3 * unit);
+    return;
+  }
+
+  drawCuboid(context, center.x - 3 * unit, groundY, 29 * unit, 24 * unit, 7 * unit, {
+    front: "#d7d2c6",
+    side: "#aaa49a",
+    top: "#ece8df",
+  });
+  drawCuboid(context, center.x + 12 * unit, groundY - 21 * unit, 21 * unit, 23 * unit, 5 * unit, {
+    front: "#ded9ce",
+    side: "#aaa49a",
+    top: "#f1ede5",
+  });
+  drawCuboid(context, center.x + 7 * unit, groundY - 42 * unit, 6 * unit, 22 * unit, 2 * unit, {
+    front: "#d8d3c9",
+    side: "#aaa49a",
+    top: "#f1ede5",
+  });
+  drawCuboid(context, center.x + 18 * unit, groundY - 42 * unit, 6 * unit, 22 * unit, 2 * unit, {
+    front: "#d8d3c9",
+    side: "#aaa49a",
+    top: "#f1ede5",
+  });
+  context.fillStyle = "#2d2927";
+  context.fillRect(center.x + 16 * unit, groundY - 37 * unit, 3 * unit, 3 * unit);
+  drawCuboid(context, center.x - 15 * unit + phase * 2 * unit, groundY + 1 * unit, 13 * unit, 7 * unit, 4 * unit, {
+    front: "#bdb7ab",
+    side: "#8f897e",
+    top: "#ded9ce",
+  });
 }
 
 function isSamePoint(a: Point, b: Point) {
@@ -498,6 +650,10 @@ function isWalkable(world: World, from: Point, to: Point) {
   const fromHeight = world[from.y][from.x].length;
   const toHeight = world[to.y][to.x].length;
   return toHeight > 0 && Math.abs(toHeight - fromHeight) <= 1;
+}
+
+function getWalkDuration(world: World, from: Point, to: Point) {
+  return world[from.y][from.x].length === world[to.y][to.x].length ? 270 : 440;
 }
 
 function findWalkingPath(world: World, start: Point, target: Point) {
@@ -596,16 +752,18 @@ export default function BlockGardenWorld() {
   const cameraRef = useRef<WorldPosition>({ x: START_POINT.x, y: START_POINT.y, z: 0 });
   const walkRef = useRef<WalkMotion | null>(null);
   const arrivalRef = useRef<(point: Point, finalStep: boolean) => void>(() => undefined);
-  const collectedStarsRef = useRef<string[]>([]);
-  const animalsRef = useRef<AnimalState[]>(makeAnimals());
   const [started, setStarted] = useState(false);
   const [mode, setMode] = useState<Mode>("walk");
   const [selectedBlock, setSelectedBlock] = useState<BuildBlock>("grass");
   const [world, setWorld] = useState<World>(() => makeInitialWorld());
-  const [collectedStars, setCollectedStars] = useState<string[]>([]);
+  const [stars, setStars] = useState<StarState[]>(() => makeInitialStars(world));
+  const starsRef = useRef<StarState[]>(stars);
+  const starIdRef = useRef(stars.length);
+  const starCountRef = useRef(0);
+  const animalsRef = useRef<AnimalState[]>(makeAnimals());
+  const [starCount, setStarCount] = useState(0);
   const [message, setMessage] = useState("Gitmek istediğin yere dokun");
   const [soundOn, setSoundOn] = useState(true);
-  const [celebrating, setCelebrating] = useState(false);
   const [isWalking, setIsWalking] = useState(false);
 
   const playSound = useCallback(
@@ -671,7 +829,7 @@ export default function BlockGardenWorld() {
         y: playerRef.current.y,
         z: Math.max(0, world[playerRef.current.y][playerRef.current.x].length - 1),
       };
-      let playerMoving = false;
+      let playerPose: PlayerPose = { walking: false, stepProgress: 0, elevationDelta: 0 };
       const activeMotion = walkRef.current;
       if (activeMotion) {
         if (rawTime - activeMotion.startedAt >= activeMotion.duration) {
@@ -689,7 +847,7 @@ export default function BlockGardenWorld() {
               to: next,
               remaining,
               startedAt: rawTime,
-              duration: activeMotion.duration,
+              duration: getWalkDuration(world, arrived, next),
             };
             playSound("step");
           }
@@ -709,7 +867,11 @@ export default function BlockGardenWorld() {
             y: currentMotion.from.y + (currentMotion.to.y - currentMotion.from.y) * progress,
             z: fromHeight + (toHeight - fromHeight) * progress,
           };
-          playerMoving = true;
+          playerPose = {
+            walking: true,
+            stepProgress: rawProgress,
+            elevationDelta: Math.sign(toHeight - fromHeight),
+          };
         } else {
           playerWorld = {
             x: playerRef.current.x,
@@ -762,8 +924,7 @@ export default function BlockGardenWorld() {
         }
       }
 
-      for (const star of STARS) {
-        if (collectedStars.includes(star.id)) continue;
+      for (const star of stars) {
         const column = world[star.y][star.x];
         if (column.length === 0) continue;
         const center = tileCenter(star.x, star.y, column.length, metrics);
@@ -773,7 +934,7 @@ export default function BlockGardenWorld() {
       }
 
       for (const animal of animalsRef.current) {
-        const rendered = updateAnimal(animal, world, rawTime, started && !celebrating);
+        const rendered = updateAnimal(animal, world, rawTime, started);
         const center = tileCenter(rendered.x, rendered.y, rendered.z + 1, metrics);
         if (center.x > -120 && center.x < width + 120 && center.y > -120 && center.y < height + 120) {
           drawVoxelAnimal(context, animal.kind, center, metrics, time, rendered.moving);
@@ -781,24 +942,9 @@ export default function BlockGardenWorld() {
       }
 
       const playerCenter = tileCenter(playerWorld.x, playerWorld.y, playerWorld.z + 1, metrics);
-      drawVoxelPlayer(context, playerCenter, metrics, time, playerMoving);
-
-      if (celebrating) {
-        const colors = ["#ff785d", "#ffd84e", "#68b8e8", "#7bd161", "#f58aaa"];
-        for (let index = 0; index < 56; index += 1) {
-          const seed = index * 37.19;
-          const x = ((seed * 17 + time * (0.025 + (index % 5) * 0.006)) % (width + 30)) - 15;
-          const y = ((seed * 11 + time * (0.045 + (index % 4) * 0.008)) % (height + 50)) - 25;
-          context.save();
-          context.translate(x, y);
-          context.rotate(time * 0.003 + seed);
-          context.fillStyle = colors[index % colors.length];
-          context.fillRect(-4, -7, 8, 14);
-          context.restore();
-        }
-      }
+      drawVoxelPlayer(context, playerCenter, metrics, time, playerPose);
     },
-    [celebrating, collectedStars, playSound, started, world],
+    [playSound, started, stars, world],
   );
 
   useEffect(() => {
@@ -811,23 +957,45 @@ export default function BlockGardenWorld() {
     return () => window.cancelAnimationFrame(frame);
   }, [draw]);
 
+  useEffect(() => {
+    if (!started) return;
+    const timer = window.setInterval(() => {
+      if (starsRef.current.length >= 32) return;
+      const point = findStarSpot(world, playerRef.current, starsRef.current);
+      if (!point) return;
+      starIdRef.current += 1;
+      const nextStars = [
+        ...starsRef.current,
+        { ...point, id: `gezgin-yildiz-${starIdRef.current}` },
+      ];
+      starsRef.current = nextStars;
+      setStars(nextStars);
+    }, 5200);
+    return () => window.clearInterval(timer);
+  }, [started, world]);
+
   const collectAt = useCallback(
     (point: Point) => {
-      const star = STARS.find((candidate) => isSamePoint(candidate, point));
-      if (!star || collectedStarsRef.current.includes(star.id)) return false;
-      const nextStars = [...collectedStarsRef.current, star.id];
-      collectedStarsRef.current = nextStars;
-      setCollectedStars(nextStars);
+      const star = starsRef.current.find((candidate) => isSamePoint(candidate, point));
+      if (!star) return false;
+      const remainingStars = starsRef.current.filter((candidate) => candidate.id !== star.id);
+      const replacementPoint = findStarSpot(world, point, [...remainingStars, point]);
+      starIdRef.current += 1;
+      const nextStars = replacementPoint
+        ? [
+            ...remainingStars,
+            { ...replacementPoint, id: `toplanan-yildiz-${starIdRef.current}` },
+          ]
+        : remainingStars;
+      starsRef.current = nextStars;
+      setStars(nextStars);
+      starCountRef.current += 1;
+      setStarCount(starCountRef.current);
       playSound("star");
-      if (nextStars.length === STARS.length) {
-        setMessage("Harika! Bütün yıldızları buldun!");
-        window.setTimeout(() => setCelebrating(true), 320);
-      } else {
-        setMessage(`Yaşasın! ${nextStars.length}. yıldızı buldun!`);
-      }
+      setMessage(`Yaşasın! Toplam ${starCountRef.current} yıldızın oldu!`);
       return true;
     },
-    [playSound],
+    [playSound, world],
   );
 
   const handleArrival = useCallback(
@@ -879,7 +1047,7 @@ export default function BlockGardenWorld() {
         to: next,
         remaining,
         startedAt: performance.now(),
-        duration: 270,
+        duration: getWalkDuration(world, start, next),
       };
       setIsWalking(true);
       setMessage("Kamera Mino'yu ortada tutuyor");
@@ -889,7 +1057,7 @@ export default function BlockGardenWorld() {
   );
 
   useEffect(() => {
-    if (!started || celebrating || isWalking) return;
+    if (!started || isWalking) return;
     const handleKey = (event: KeyboardEvent) => {
       const current = playerRef.current;
       const moves: Record<string, Point> = {
@@ -909,7 +1077,7 @@ export default function BlockGardenWorld() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [celebrating, isWalking, moveTo, started]);
+  }, [isWalking, moveTo, started]);
 
   const findTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -949,7 +1117,7 @@ export default function BlockGardenWorld() {
   };
 
   const chooseTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!started || celebrating) return;
+    if (!started) return;
     const point = findTile(event);
     if (!point) return;
     if (mode === "walk") {
@@ -964,7 +1132,7 @@ export default function BlockGardenWorld() {
     const protectedSpot =
       isSamePoint(playerRef.current, point) ||
       animalSpot ||
-      STARS.some((star) => isSamePoint(star, point) && !collectedStarsRef.current.includes(star.id));
+      starsRef.current.some((star) => isSamePoint(star, point));
     if (protectedSpot) {
       setMessage("Mino, hayvanlar ve yıldızlar için burayı boş bırakalım");
       playSound("oops");
@@ -1012,16 +1180,20 @@ export default function BlockGardenWorld() {
   };
 
   const resetGame = () => {
+    const nextWorld = makeInitialWorld();
+    const nextStars = makeInitialStars(nextWorld);
     walkRef.current = null;
     playerRef.current = { ...START_POINT };
     cameraRef.current = { x: START_POINT.x, y: START_POINT.y, z: 0 };
-    collectedStarsRef.current = [];
+    starsRef.current = nextStars;
+    starIdRef.current = nextStars.length;
+    starCountRef.current = 0;
     animalsRef.current = makeAnimals();
-    setWorld(makeInitialWorld());
-    setCollectedStars([]);
+    setWorld(nextWorld);
+    setStars(nextStars);
+    setStarCount(0);
     setMode("walk");
     setSelectedBlock("grass");
-    setCelebrating(false);
     setIsWalking(false);
     setMessage("100 × 100 dünya yeniden hazır!");
     playSound("start");
@@ -1059,10 +1231,14 @@ export default function BlockGardenWorld() {
         />
 
         <header className="scene-topbar">
+          <div className="scene-brand">
+            <span className="brand-cube" aria-hidden="true">▰</span>
+            <h1>Mineblok</h1>
+          </div>
           <div className="top-actions">
-            <div className="star-goal" aria-label={`${collectedStars.length} yıldız bulundu, hedef 3`}>
+            <div className="star-goal" aria-label={`${starCount} yıldız toplandı`}>
               <span aria-hidden="true">⭐</span>
-              <strong>{collectedStars.length} / {STARS.length}</strong>
+              <strong>{starCount}</strong>
             </div>
             <button
               type="button"
@@ -1075,10 +1251,6 @@ export default function BlockGardenWorld() {
             </button>
             <button type="button" className="mini-button" onClick={resetGame} aria-label="Dünyayı yenile" title="Dünyayı yenile">↻</button>
             <button type="button" className="mini-button fullscreen-button" onClick={toggleFullscreen} aria-label="Tam ekran" title="Tam ekran">⛶</button>
-          </div>
-          <div className="scene-brand">
-            <span className="brand-cube" aria-hidden="true">▰</span>
-            <h1>Mineblok</h1>
           </div>
         </header>
 
@@ -1095,7 +1267,7 @@ export default function BlockGardenWorld() {
           </div>
         )}
 
-        {started && !celebrating && (
+        {started && (
           <>
             <p className="sr-only" role="status" aria-live="polite">{message}</p>
             {mode === "walk" && (
@@ -1155,17 +1327,6 @@ export default function BlockGardenWorld() {
           </div>
         </nav>
 
-        {celebrating && (
-          <div className="celebration-card" role="dialog" aria-label="Tebrikler">
-            <span className="rainbow" aria-hidden="true">🌈</span>
-            <h2>Başardın!</h2>
-            <p>Bütün yıldızları buldun. Şimdi dev dünyanı istediğin gibi yapabilirsin!</p>
-            <div className="celebration-actions">
-              <button type="button" className="continue-button" onClick={() => { setCelebrating(false); setMode("build"); setMessage("Şimdi hayalindeki dünyayı yap!"); }}>BLOK YAP</button>
-              <button type="button" className="again-button" onClick={resetGame}>YENİDEN</button>
-            </div>
-          </div>
-        )}
       </section>
     </main>
   );

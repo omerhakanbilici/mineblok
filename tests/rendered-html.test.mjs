@@ -35,6 +35,9 @@ test("server-renders the full-screen block world HUD", async () => {
   assert.match(html, /<h1>Mineblok<\/h1>/);
   assert.match(html, /Uçsuz bucaksız Mineblok dünyası seni bekliyor!/);
   assert.doesNotMatch(html, /class="hint-bubble"/);
+  assert.match(html, /class="scene-topbar"[\s\S]*class="scene-brand"[\s\S]*class="top-actions"/);
+  assert.match(html, /aria-label="0 yıldız toplandı"/);
+  assert.doesNotMatch(html, /0[\s\S]{0,30}\/ 3/);
   assert.match(html, /class="world-card"[\s\S]*class="tool-dock [^"]*"[\s\S]*<\/section>/);
   assert.match(html, />GEZ<\/strong>/);
   assert.match(html, />YAP<\/strong>/);
@@ -54,8 +57,16 @@ test("keeps camera, wandering animals, and every control inside the game scene",
   assert.match(game, /drawVoxelPlayer/);
   assert.match(game, /const surfaceY = center\.y \+ metrics\.tileH \* 0\.03;/);
   assert.match(game, /const shoeHeight = 7 \* unit;/);
+  assert.match(game, /const climbLift = pose\.elevationDelta > 0/);
+  assert.match(game, /const descentCrouch = pose\.elevationDelta < 0/);
+  assert.match(game, /return world\[from\.y\]\[from\.x\]\.length === world\[to\.y\]\[to\.x\]\.length \? 270 : 440;/);
   assert.match(game, /function updateAnimal/);
   assert.match(game, /duration: 1150 \+ Math\.random\(\) \* 450/);
+  assert.match(game, /type AnimalKind = "sheep" \| "chick" \| "cow" \| "pig" \| "rabbit";/);
+  assert.match(game, /function makeInitialStars/);
+  assert.match(game, /starsRef\.current\.length >= 32/);
+  assert.match(game, /setStarCount\(starCountRef\.current\)/);
+  assert.doesNotMatch(game, /celebrating|STARS|hedef 3/);
   assert.match(game, /<section className="world-card"[\s\S]*<header className="scene-topbar"/);
   assert.match(game, /<nav className=\{`tool-dock/);
   assert.match(game, /className="dpad"/);
@@ -63,6 +74,7 @@ test("keeps camera, wandering animals, and every control inside the game scene",
   assert.match(css, /\.game-shell,[\s\S]*\.world-card[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;/);
   assert.match(css, /\.world-canvas[\s\S]*width:\s*100%;[\s\S]*height:\s*100%;/);
   assert.match(css, /\.tool-dock[\s\S]*position:\s*absolute;/);
+  assert.match(css, /\.scene-topbar[\s\S]*justify-content:\s*space-between;/);
   assert.match(page, /import BlockGardenWorld from "\.\/BlockGardenWorld";/);
   assert.match(layout, /import "\.\/world\.css";/);
 
