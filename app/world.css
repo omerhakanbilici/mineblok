@@ -126,6 +126,7 @@ button:focus-visible {
 .top-actions,
 .dpad,
 .sword-button,
+.jump-button,
 .tool-dock,
 .welcome-card {
   pointer-events: auto;
@@ -175,6 +176,60 @@ button:focus-visible {
   display: flex;
   align-items: stretch;
   gap: 9px;
+}
+
+.fps-indicator {
+  position: absolute;
+  top: max(84px, calc(env(safe-area-inset-top) + 70px));
+  right: max(18px, env(safe-area-inset-right));
+  z-index: 12;
+  display: flex;
+  min-width: 76px;
+  min-height: 34px;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 12px;
+  background: rgba(9, 22, 17, 0.34);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+  -webkit-text-stroke: 1px rgba(0, 0, 0, 0.88);
+  paint-order: stroke fill;
+  text-shadow: 0 1px 1px #000;
+}
+
+.fps-indicator strong {
+  font-size: 19px;
+  font-weight: 1000;
+}
+
+.fps-indicator span {
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+}
+
+.fps-waiting {
+  color: #f7f7f0;
+}
+
+.fps-red {
+  color: #ff5252;
+}
+
+.fps-orange {
+  color: #ff9f43;
+}
+
+.fps-yellow {
+  color: #ffe65a;
+}
+
+.fps-green {
+  color: #65e572;
 }
 
 .health-goal,
@@ -335,6 +390,49 @@ button:focus-visible {
 
 .sword-button.danger {
   filter: drop-shadow(0 0 12px rgba(255, 225, 79, 0.8));
+}
+
+.jump-button {
+  position: absolute;
+  right: max(128px, calc(env(safe-area-inset-right) + 116px));
+  bottom: max(23px, calc(env(safe-area-inset-bottom) + 12px));
+  z-index: 14;
+  display: grid;
+  min-width: 94px;
+  min-height: 86px;
+  place-items: center;
+  align-content: center;
+  gap: 1px;
+  padding: 9px 13px;
+  border: 3px solid rgba(255, 255, 255, 0.88);
+  border-radius: 24px;
+  color: #f4fff9;
+  background: linear-gradient(145deg, #4e9d86, #276354);
+  box-shadow: 0 7px 0 #18473d, 0 14px 28px rgba(20, 70, 57, 0.24);
+  cursor: pointer;
+  transition: transform 110ms ease, box-shadow 110ms ease;
+}
+
+.jump-button > span {
+  font-size: 31px;
+  line-height: 1;
+}
+
+.jump-button strong {
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.jump-button small {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.jump-button:active {
+  transform: translateY(4px) scale(0.97);
+  box-shadow: 0 3px 0 #18473d, 0 8px 18px rgba(20, 70, 57, 0.2);
 }
 
 .tool-dock {
@@ -596,6 +694,19 @@ button:focus-visible {
     display: none;
   }
 
+  .fps-indicator {
+    top: max(64px, calc(env(safe-area-inset-top) + 55px));
+    right: max(8px, env(safe-area-inset-right));
+    min-width: 66px;
+    min-height: 29px;
+    padding: 4px 8px;
+    border-radius: 10px;
+  }
+
+  .fps-indicator strong {
+    font-size: 16px;
+  }
+
   .dpad {
     bottom: max(91px, calc(env(safe-area-inset-bottom) + 83px));
     left: max(8px, env(safe-area-inset-left));
@@ -622,11 +733,23 @@ button:focus-visible {
     box-shadow: 0 5px 0 #2b2031, 0 10px 22px rgba(36, 20, 35, 0.22);
   }
 
-  .sword-button > span {
+  .jump-button {
+    right: max(92px, calc(env(safe-area-inset-right) + 84px));
+    bottom: max(91px, calc(env(safe-area-inset-bottom) + 83px));
+    min-width: 76px;
+    min-height: 76px;
+    padding: 7px 10px;
+    border-radius: 21px;
+    box-shadow: 0 5px 0 #18473d, 0 10px 22px rgba(20, 70, 57, 0.22);
+  }
+
+  .sword-button > span,
+  .jump-button > span {
     font-size: 27px;
   }
 
-  .sword-button small {
+  .sword-button small,
+  .jump-button small {
     display: none;
   }
 
@@ -702,6 +825,11 @@ button:focus-visible {
 
   .sword-button {
     right: max(142px, calc(env(safe-area-inset-right) + 132px));
+    bottom: max(13px, env(safe-area-inset-bottom));
+  }
+
+  .jump-button {
+    right: max(226px, calc(env(safe-area-inset-right) + 216px));
     bottom: max(13px, env(safe-area-inset-bottom));
   }
 

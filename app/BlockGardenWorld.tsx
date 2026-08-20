@@ -29,7 +29,14 @@ type PlayerPose = {
   walking: boolean;
   stepProgress: number;
   elevationDelta: number;
+  jumpLift: number;
+  jumpStage: 0 | 1 | 2;
   swordSwingProgress: number | null;
+};
+type JumpMotion = {
+  stage: 1 | 2;
+  startedAt: number;
+  startLift: number;
 };
 type StarState = Point & { id: string };
 type AnimalKind = "sheep" | "chick" | "cow" | "pig" | "rabbit";
@@ -117,10 +124,15 @@ type RenderStats = {
   slowDraws: number;
 };
 
-const TABLET_FRAME_INTERVAL = 1000 / 20;
+type FpsCounter = {
+  startedAt: number;
+  frames: number;
+};
+
+const TABLET_FRAME_INTERVAL = 1000 / 30;
 const TABLET_CANVAS_SCALE = 0.8;
 const TABLET_CANVAS_PIXEL_BUDGET = 650_000;
-const CONSTRAINED_FRAME_INTERVAL = 1000 / 18;
+const CONSTRAINED_FRAME_INTERVAL = 1000 / 20;
 const CONSTRAINED_CANVAS_SCALE = 0.6;
 const CONSTRAINED_CANVAS_PIXEL_BUDGET = 420_000;
 const LOW_POWER_MIN_CANVAS_SCALE = 0.45;
@@ -130,6 +142,11 @@ const TERRAIN_CACHE_CAMERA_THRESHOLD = 1.65;
 const BLOCK_SPRITE_VARIANTS = 4;
 const ADAPTIVE_SAMPLE_COUNT = 20;
 const ADAPTIVE_SLOW_DRAW_MS = 14;
+const ADAPTIVE_MINIMUM_FPS = 24;
+const FIRST_JUMP_DURATION = 640;
+const SECOND_JUMP_DURATION = 780;
+const FIRST_JUMP_HEIGHT = 0.72;
+const SECOND_JUMP_HEIGHT = 1.45;
 
 function makeConstrainedProfile(reducedMotion: boolean): RenderProfile {
   return {
@@ -183,6 +200,25 @@ function getCanvasScale(width: number, height: number, profile: RenderProfile) {
   const deviceScale = window.devicePixelRatio || 1;
   const budgetScale = Math.sqrt(profile.pixelBudget / Math.max(1, width * height));
   return Math.max(profile.minScale, Math.min(deviceScale, profile.maxScale, budgetScale));
+}
+
+function getJumpFrame(motion: JumpMotion, time: number) {
+  const duration = motion.stage === 1 ? FIRST_JUMP_DURATION : SECOND_JUMP_DURATION;
+  const progress = Math.min(1, Math.max(0, (time - motion.startedAt) / duration));
+  if (progress >= 1) return { lift: 0, finished: true };
+  const height = motion.stage === 1 ? FIRST_JUMP_HEIGHT : SECOND_JUMP_HEIGHT;
+  return {
+    lift: motion.startLift * (1 - progress) + Math.sin(Math.PI * progress) * height,
+    finished: false,
+  };
+}
+
+function getFpsTone(fps: number | null) {
+  if (fps === null) return "waiting";
+  if (fps < 20) return "red";
+  if (fps < 30) return "orange";
+  if (fps < 35) return "yellow";
+  return "green";
 }
 
 const ANIMAL_SPAWNS: Array<{
@@ -774,12 +810,22 @@ function drawVoxelPlayer(
   const bounce = pose.walking ? Math.abs(Math.sin(time * 0.02)) * 1.5 * unit : 0;
   const climbLift = pose.elevationDelta > 0 ? stepArc * 8 * unit : 0;
   const descentCrouch = pose.elevationDelta < 0 ? stepArc * 6 * unit : 0;
+  const jumpLift = pose.jumpLift * metrics.blockH;
   const surfaceY = center.y + metrics.tileH * 0.03;
-  const groundY = surfaceY - bounce - climbLift;
+  const groundY = surfaceY - bounce - climbLift - jumpLift;
+  const shadowScale = Math.max(0.48, 1 - pose.jumpLift * 0.28);
 
-  context.fillStyle = "rgba(21, 47, 32, 0.26)";
+  context.fillStyle = `rgba(21, 47, 32, ${0.14 + shadowScale * 0.12})`;
   context.beginPath();
-  context.ellipse(center.x + 4 * unit, surfaceY + 3 * unit, 18 * unit, 5 * unit, 0, 0, Math.PI * 2);
+  context.ellipse(
+    center.x + 4 * unit,
+    surfaceY + 3 * unit,
+    18 * unit * shadowScale,
+    5 * unit * shadowScale,
+    0,
+    0,
+    Math.PI * 2,
+  );
   context.fill();
 
   const shoeHeight = 7 * unit;
@@ -821,6 +867,7 @@ function drawVoxelPlayer(
       : pose.elevationDelta < 0
         ? stepArc * 1.45
         : 0;
+  const jumpArmAngle = pose.jumpStage === 2 ? 1.05 : pose.jumpStage === 1 ? 0.58 : 0;
   const walkingArmAngle = phase * 0.22;
   const swordArmSwing =
     pose.swordSwingProgress === null
@@ -831,7 +878,7 @@ function drawVoxelPlayer(
     context,
     center.x - 18 * unit,
     shoulderY,
-    elevationArmAngle + walkingArmAngle,
+    elevationArmAngle + jumpArmAngle + walkingArmAngle,
     unit,
     -1,
   );
@@ -839,7 +886,7 @@ function drawVoxelPlayer(
     context,
     center.x + 18 * unit,
     shoulderY,
-    -elevationArmAngle - walkingArmAngle + swordArmSwing,
+    -elevationArmAngle - jumpArmAngle - walkingArmAngle + swordArmSwing,
     unit,
     pose.swordSwingProgress,
   );
@@ -1274,10 +1321,12 @@ export default function BlockGardenWorld() {
   const terrainCacheRef = useRef<TerrainCache | null>(null);
   const blockSpriteAtlasRef = useRef<BlockSpriteAtlas | null>(null);
   const renderStatsRef = useRef<RenderStats>({ samples: 0, totalDrawTime: 0, slowDraws: 0 });
+  const fpsCounterRef = useRef<FpsCounter>({ startedAt: 0, frames: 0 });
   const audioRef = useRef<AudioContext | null>(null);
   const playerRef = useRef<Point>({ ...START_POINT });
   const cameraRef = useRef<WorldPosition>({ x: START_POINT.x, y: START_POINT.y, z: 0 });
   const walkRef = useRef<WalkMotion | null>(null);
+  const jumpRef = useRef<JumpMotion | null>(null);
   const arrivalRef = useRef<(point: Point, finalStep: boolean) => void>(() => undefined);
   const [started, setStarted] = useState(false);
   const [mode, setMode] = useState<Mode>("walk");
@@ -1302,12 +1351,13 @@ export default function BlockGardenWorld() {
   const [starCount, setStarCount] = useState(0);
   const [health, setHealth] = useState(MAX_HEALTH);
   const [dangerNearby, setDangerNearby] = useState(false);
+  const [fps, setFps] = useState<number | null>(null);
   const [message, setMessage] = useState("Gitmek istediğin yere dokun");
   const [soundOn, setSoundOn] = useState(true);
   const [isWalking, setIsWalking] = useState(false);
 
   const playSound = useCallback(
-    (kind: "start" | "step" | "build" | "remove" | "star" | "hello" | "oops" | "hit" | "hurt") => {
+    (kind: "start" | "step" | "build" | "remove" | "star" | "hello" | "oops" | "hit" | "hurt" | "jump" | "doubleJump") => {
       if (!soundOn || typeof window === "undefined") return;
       const AudioConstructor =
         window.AudioContext ||
@@ -1326,6 +1376,8 @@ export default function BlockGardenWorld() {
         oops: [220, 196],
         hit: [520, 330],
         hurt: [180, 145],
+        jump: [440, 660],
+        doubleJump: [523, 784, 1046],
       };
       notes[kind].forEach((frequency, index) => {
         const oscillator = audio.createOscillator();
@@ -1356,6 +1408,7 @@ export default function BlockGardenWorld() {
       terrainCacheRef.current = null;
       blockSpriteAtlasRef.current = null;
       renderStatsRef.current = { samples: 0, totalDrawTime: 0, slowDraws: 0 };
+      fpsCounterRef.current = { startedAt: 0, frames: 0 };
     };
     const updateSize = () => {
       const bounds = canvas.getBoundingClientRect();
@@ -1428,6 +1481,8 @@ export default function BlockGardenWorld() {
         walking: false,
         stepProgress: 0,
         elevationDelta: 0,
+        jumpLift: 0,
+        jumpStage: 0,
         swordSwingProgress,
       };
       const activeMotion = walkRef.current;
@@ -1471,6 +1526,8 @@ export default function BlockGardenWorld() {
             walking: true,
             stepProgress: rawProgress,
             elevationDelta: Math.sign(toHeight - fromHeight),
+            jumpLift: 0,
+            jumpStage: 0,
             swordSwingProgress,
           };
         } else {
@@ -1479,6 +1536,16 @@ export default function BlockGardenWorld() {
             y: playerRef.current.y,
             z: Math.max(0, world[playerRef.current.y][playerRef.current.x].length - 1),
           };
+        }
+      }
+
+      const activeJump = jumpRef.current;
+      if (activeJump) {
+        const jumpFrame = getJumpFrame(activeJump, rawTime);
+        if (jumpFrame.finished) jumpRef.current = null;
+        else {
+          playerPose.jumpLift = jumpFrame.lift;
+          playerPose.jumpStage = activeJump.stage;
         }
       }
 
@@ -1608,6 +1675,13 @@ export default function BlockGardenWorld() {
   useEffect(() => {
     let frame = 0;
     let lastDrawAt = 0;
+    const downgradeTablet = (profile: RenderProfile) => {
+      if (renderProfileRef.current.tier !== "tablet") return;
+      renderProfileRef.current = makeConstrainedProfile(profile.reducedMotion);
+      terrainCacheRef.current = null;
+      blockSpriteAtlasRef.current = null;
+      renderStatsRef.current = { samples: 0, totalDrawTime: 0, slowDraws: 0 };
+    };
     const render = (time: number) => {
       const profile = renderProfileRef.current;
       const frameInterval = profile.frameInterval;
@@ -1630,11 +1704,27 @@ export default function BlockGardenWorld() {
           if (stats.samples >= ADAPTIVE_SAMPLE_COUNT) {
             const averageDrawTime = stats.totalDrawTime / stats.samples;
             if (averageDrawTime >= ADAPTIVE_SLOW_DRAW_MS || stats.slowDraws >= 6) {
-              renderProfileRef.current = makeConstrainedProfile(profile.reducedMotion);
-              terrainCacheRef.current = null;
-              blockSpriteAtlasRef.current = null;
+              downgradeTablet(profile);
             }
             renderStatsRef.current = { samples: 0, totalDrawTime: 0, slowDraws: 0 };
+          }
+        }
+        if (started) {
+          const counter = fpsCounterRef.current;
+          if (counter.startedAt === 0) {
+            counter.startedAt = time;
+            counter.frames = 0;
+          } else {
+            counter.frames += 1;
+            const sampleDuration = time - counter.startedAt;
+            if (sampleDuration >= 1000) {
+              const measuredFps = Math.round((counter.frames * 1000) / sampleDuration);
+              setFps(measuredFps);
+              if (profile.tier === "tablet" && measuredFps < ADAPTIVE_MINIMUM_FPS) {
+                downgradeTablet(profile);
+              }
+              fpsCounterRef.current = { startedAt: time, frames: 0 };
+            }
           }
         }
         lastDrawAt = frameInterval > 0 ? time - (elapsed % frameInterval) : time;
@@ -1644,6 +1734,16 @@ export default function BlockGardenWorld() {
     frame = window.requestAnimationFrame(render);
     return () => window.cancelAnimationFrame(frame);
   }, [draw, started]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== "hidden") return;
+      fpsCounterRef.current = { startedAt: 0, frames: 0 };
+      setFps(null);
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   useEffect(() => {
     if (!started) return;
@@ -1732,6 +1832,27 @@ export default function BlockGardenWorld() {
     if (reachedNextTile) arrivalRef.current(anchor, false);
     return anchor;
   }, [world]);
+
+  const startJump = useCallback(() => {
+    const now = performance.now();
+    const activeJump = jumpRef.current;
+    if (!activeJump || getJumpFrame(activeJump, now).finished) {
+      jumpRef.current = { stage: 1, startedAt: now, startLift: 0 };
+      playSound("jump");
+      setMessage("Hop! Mino zıpladı");
+      return;
+    }
+    if (activeJump.stage === 1) {
+      const currentFrame = getJumpFrame(activeJump, now);
+      jumpRef.current = {
+        stage: 2,
+        startedAt: now,
+        startLift: currentFrame.lift,
+      };
+      playSound("doubleJump");
+      setMessage("Süper! Çifte zıplama daha yükseğe çıkarır");
+    }
+  }, [playSound]);
 
   const addDust = useCallback(
     (point: Point, color: string) => {
@@ -1887,6 +2008,7 @@ export default function BlockGardenWorld() {
 
       if (nextHealth === 0) {
         walkRef.current = null;
+        jumpRef.current = null;
         playerRef.current = { ...START_POINT };
         cameraRef.current = { x: START_POINT.x, y: START_POINT.y, z: 0 };
         healthRef.current = MAX_HEALTH;
@@ -1962,6 +2084,11 @@ export default function BlockGardenWorld() {
     const handleKey = (event: KeyboardEvent) => {
       if (event.code === "Space") {
         event.preventDefault();
+        if (!event.repeat) startJump();
+        return;
+      }
+      if (event.code === "KeyF") {
+        event.preventDefault();
         swingSword();
         return;
       }
@@ -1983,7 +2110,7 @@ export default function BlockGardenWorld() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [moveTo, started, stopWalking, swingSword]);
+  }, [moveTo, startJump, started, stopWalking, swingSword]);
 
   const findTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -2085,6 +2212,8 @@ export default function BlockGardenWorld() {
   };
 
   const startGame = () => {
+    fpsCounterRef.current = { startedAt: 0, frames: 0 };
+    setFps(null);
     setStarted(true);
     setMessage("Mino ortada kalır; dünya onun çevresinde hareket eder");
     playSound("start");
@@ -2094,6 +2223,8 @@ export default function BlockGardenWorld() {
     const nextWorld = makeInitialWorld();
     const nextStars = makeInitialStars(nextWorld);
     walkRef.current = null;
+    jumpRef.current = null;
+    fpsCounterRef.current = { startedAt: 0, frames: 0 };
     playerRef.current = { ...START_POINT };
     cameraRef.current = { x: START_POINT.x, y: START_POINT.y, z: 0 };
     starsRef.current = nextStars;
@@ -2114,6 +2245,7 @@ export default function BlockGardenWorld() {
     setStarCount(0);
     setHealth(MAX_HEALTH);
     setDangerNearby(false);
+    setFps(null);
     setMode("walk");
     setSelectedBlock("grass");
     setIsWalking(false);
@@ -2140,6 +2272,8 @@ export default function BlockGardenWorld() {
       setMessage("Tam ekran bu tarayıcıda açılamadı");
     }
   };
+
+  const fpsTone = getFpsTone(fps);
 
   return (
     <main className="game-shell">
@@ -2187,6 +2321,14 @@ export default function BlockGardenWorld() {
           </div>
         </header>
 
+        <div
+          className={`fps-indicator fps-${fpsTone}`}
+          aria-label={fps === null ? "FPS ölçülüyor" : `${fps} FPS`}
+        >
+          <strong>{fps ?? "—"}</strong>
+          <span>FPS</span>
+        </div>
+
         {!started && (
           <div className="welcome-card">
             <span className="welcome-sun" aria-hidden="true">🧭</span>
@@ -2216,10 +2358,21 @@ export default function BlockGardenWorld() {
               className={`sword-button${dangerNearby ? " danger" : ""}`}
               onClick={swingSword}
               aria-label="Kılıçla manuel vur"
-              title="Kılıçla manuel vur (Boşluk tuşu)"
+              title="Kılıçla manuel vur (F tuşu)"
             >
               <span aria-hidden="true">⚔️</span>
               <strong>KILIÇ</strong>
+              <small>F</small>
+            </button>
+            <button
+              type="button"
+              className="jump-button"
+              onClick={startJump}
+              aria-label="Zıpla; havadayken tekrar basınca daha yükseğe zıpla"
+              title="Zıpla; ikinci basış daha yükseğe çıkarır (Boşluk tuşu)"
+            >
+              <span aria-hidden="true">⬆️</span>
+              <strong>ZIPLA</strong>
               <small>BOŞLUK</small>
             </button>
           </>

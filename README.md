@@ -15,6 +15,8 @@ Site herkese açıktır. Oyuncular ChatGPT hesabı açmadan veya giriş yapmadan
 - Oyuncuyu ekranda tutan, hareketle beraber kayan kamera
 - Fare, dokunma, yön paneli, ok tuşları ve WASD ile hareket
 - Kareden kareye akıcı yürüyüş; çıkış ve iniş için farklı beden hareketleri
+- Yürürken de kullanılabilen zıplama ve daha yükseğe çıkaran ikinci zıplama
+- Sağ üstte gerçek çizim hızını renklerle gösteren FPS sayacı
 - Kesintisiz yıldız toplama ve ekranda toplam yıldız sayacı
 - Koyun, civciv, inek, domuz ve tavşanlardan oluşan hareketli hayvanlar
 - 100 canla başlayan, kırmızı düşmanlara karşı çalışan basit savaş sistemi
@@ -28,7 +30,8 @@ Site herkese açıktır. Oyuncular ChatGPT hesabı açmadan veya giriş yapmadan
 | --- | --- | --- |
 | Bir yere git | Haritadaki hedef bloğa bas | Ok tuşları veya WASD |
 | Bir blok ilerle | Sol alttaki yön paneline bas | Ok tuşları veya WASD |
-| Kılıç kullan | Sağ alttaki **KILIÇ** düğmesine bas | Boşluk tuşu |
+| Zıpla / çift zıpla | Sağ alttaki **ZIPLA** düğmesine bas; havadayken tekrar bas | Boşluk tuşu; havadayken tekrar Boşluk |
+| Kılıç kullan | Sağ alttaki **KILIÇ** düğmesine bas | `F` tuşu |
 | Mod değiştir | **GEZ**, **YAP** veya **GERİ AL** düğmesine bas | — |
 | Blok seç | **YAP** modunda açılan renklerden birini seç | — |
 | Ses, sıfırlama, tam ekran | Sağ üstteki düğmeleri kullan | — |
@@ -37,10 +40,14 @@ Site herkese açıktır. Oyuncular ChatGPT hesabı açmadan veya giriş yapmadan
 
 Uzak bir bloğa basıldığında Mino hedefe doğru yol bulur; fakat oyuncu kontrolü hiçbir zaman kilitlenmez. Yürürken yeni bir harita noktası seçmek, yön paneline basmak, klavyeden başka bir yön vermek, mod değiştirmek veya kılıcı kullanmak mevcut yürüyüşü hemen keser. Mino en yakın kareye yerleşir ve yeni komutu uygular. Hareket sırasında hiçbir oyun düğmesi devre dışı bırakılmamalıdır.
 
+### Zıplama
+
+Zıplama yatay yürüyüşten bağımsızdır; Mino boş dururken veya bir hedefe yürürken zıplayabilir. İlk zıplama sırasında **ZIPLA** düğmesine ya da Boşluk tuşuna ikinci kez basmak daha uzun ve daha yüksek bir ikinci sıçrama başlatır. Üçüncü basış Mino yere inene kadar yeni bir sıçrama oluşturmaz. Kamera zemini izlemeye devam ettiği için Mino'nun yükseldiği açıkça görülür; gölgesi yerde kalıp küçülür.
+
 ## Savaş kuralları
 
 - Mino'nun kılıcı menzil içindeki hayvanlara otomatik olarak vurur.
-- Kırmızı bir düşmana hemen vurmak için **KILIÇ** düğmesi veya boşluk tuşu kullanılabilir.
+- Kırmızı bir düşmana hemen vurmak için **KILIÇ** düğmesi veya `F` tuşu kullanılabilir.
 - Oyuncu düşmanın yanında beklerse ilk saldırıyı düşman yapar: 1200 ms sonra 2 can eksilir.
 - Mino, düşmanın ilk vuruşundan 520 ms sonra otomatik karşılık verir.
 - Hayvanlar ve düşmanlar tek vuruşta toz efektiyle kaybolur.
@@ -94,11 +101,12 @@ Oyunun veritabanı veya kullanıcı hesabına bağlı kalıcı kaydı yoktur. D�
 - Arazi/çiçekler ile karakter/canlı/efekt çizimleri iki ayrı Canvas katmanıdır. Arazi katmanı her karede kopyalanmaz; kamera hareketinde GPU destekli CSS dönüşümüyle kaydırılır.
 - Arazi ancak kamera yaklaşık iki blok ilerlediğinde, ekran profili değiştiğinde veya dünya düzenlendiğinde yeniden hazırlanır.
 - Blok yüzleri her arazi yenilemesinde çokgenlerden tekrar üretilmek yerine küçük bir sprite atlasından çizilir.
-- Dokunmatik tablet profili 20 FPS, en fazla `0.8x` ölçek ve yaklaşık 650 bin hareketli Canvas pikseli hedefler. Düşük CPU/bellek bildiren veya çizimi yavaş kalan cihazlar otomatik olarak 18 FPS, `0.6x` ve 420 bin piksel profiline iner.
+- Dokunmatik tablet profili 30 FPS, en fazla `0.8x` ölçek ve yaklaşık 650 bin hareketli Canvas pikseli hedefler. Düşük CPU/bellek bildiren, çizimi yavaş kalan veya ölçülen hızı 24 FPS'in altında kalan cihazlar otomatik olarak 20 FPS, `0.6x` ve 420 bin piksel profiline iner.
 - Düşük güçlü profiller gerektiğinde `0.45x` ölçeğe kadar inebilir; bu, yüksek çözünürlüklü tabletlerde kesintisiz hareketi keskinlikten öncelikli tutar.
 - Çiçekler ve tabletlerde yıldız süs animasyonu sabittir. Karakter yürüyüşü, hayvanlar, düşmanlar ve oyun efektleri hareket etmeye devam eder.
 - Dokunmatik cihazlarda hareketli Canvas üzerinde pahalı `backdrop-filter` bulanıklıkları kapatılır; kontroller daha opak fakat aynı yerleşimde kalır.
 - Sekme görünür değilken çizim yapılmaz; oyun başlamadan önce düşük güçlü cihazlarda yalnızca gerekli ilk kare çizilir.
+- Sağ üstteki sayaç gerçek çizilen kareleri ölçer: 20 altı kırmızı, 20–29 turuncu, 30–34 sarı, 35 ve üzeri yeşildir.
 
 Bu sınırları kaldırmayın veya mobil cihazlarda sınırsız `devicePixelRatio` kullanmayın. Görsel kaliteyi artırmak gerekirse önce tabletlerde ölçüm yapın; kararlı hareket, ek çözünürlükten daha önemlidir.
 

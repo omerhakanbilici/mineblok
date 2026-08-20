@@ -16,6 +16,7 @@ The primary live site is the Render Static Site at `https://mineblok.onrender.co
 - Never disable a gameplay control merely because Mino is walking.
 - Any new destination, keyboard/D-pad direction, mode change, or sword action interrupts the current walk.
 - On interruption, settle Mino on the nearest grid cell before starting the next command.
+- Jumping never interrupts horizontal walking. One airborne second input starts the stronger double jump; further jump input is ignored until landing.
 - Keep Pointer Events as the shared mouse and touch input path.
 - UI copy remains short, friendly, and Turkish.
 - Guest access remains public and does not require ChatGPT sign-in.
@@ -30,7 +31,8 @@ Never reintroduce `disabled={isWalking}`, `disabled={!started || isWalking}`, or
 - Canvas press/tap: choose a reachable target and begin path movement.
 - D-pad: move one grid cell diagonally in screen space.
 - Arrow keys or WASD: same one-cell movement as the D-pad.
-- `KILIÇ` button or Space: stop walking and swing immediately.
+- `ZIPLA` button or Space: jump without stopping horizontal movement; press once more while airborne for the higher double jump.
+- `KILIÇ` button or `F`: stop walking and swing immediately.
 - `GEZ`, `YAP`, `GERİ AL`: stop walking, then switch mode.
 - Build palette: choose the block used by `YAP`.
 - Sound, reset, and fullscreen controls remain available during movement.
@@ -72,7 +74,7 @@ Avoid copying camera or coordinate formulas into event handlers. Use the existin
 
 ## React state versus animation refs
 
-High-frequency simulation data belongs in refs (`playerRef`, `cameraRef`, `walkRef`, entity refs, combat timers, and effect refs). React state is for DOM/HUD changes such as mode, selected block, health, star count, sound, and whether walking/swinging affects CSS or accessibility.
+High-frequency simulation data belongs in refs (`playerRef`, `cameraRef`, `walkRef`, `jumpRef`, entity refs, combat timers, FPS counters, and effect refs). React state is for DOM/HUD changes such as mode, selected block, health, star count, measured FPS, sound, and whether walking/swinging affects CSS or accessibility.
 
 Do not move per-frame positions into React state without measuring the render cost. When a ref value also appears in the HUD, update its paired state only when the displayed value changes.
 
@@ -101,6 +103,17 @@ When changing movement, manually verify these sequences:
 
 Mino must never remain between cells or ignore the second action.
 
+## Jump state machine
+
+Jumping is a visual vertical motion layered on top of the current ground position; it must not change grid coordinates, stop `walkRef`, or move the terrain-following camera upward with the player. `jumpRef` stores stage 1 or 2, its start time, and the lift inherited when stage 2 begins.
+
+- Stage 1 uses `FIRST_JUMP_HEIGHT` and `FIRST_JUMP_DURATION`.
+- A second input during stage 1 starts stage 2 from the current lift.
+- `SECOND_JUMP_HEIGHT` must remain visibly larger than `FIRST_JUMP_HEIGHT`.
+- Input during stage 2 does nothing until the motion finishes.
+- Keep the ground shadow anchored to the tile while the body rises; shrink it with jump height.
+- Space key repeat must not trigger the second jump automatically. Require a second physical press or button tap.
+
 ## Combat state machine
 
 Relevant constants are near the top of `BlockGardenWorld.tsx`:
@@ -124,7 +137,7 @@ Do not make enemy auto-attacks immediate, and do not remove the manual sword pat
 
 ## UI and responsive layout
 
-The scene is fixed to the viewport. HUD groups use absolute positioning inside `world-card`; there should be no external page gutter or control strip. Keep touch targets generous. Check that the title, health/star display, D-pad, sword, tool dock, and optional build palette do not overlap on narrow screens or landscape mobile layouts.
+The scene is fixed to the viewport. HUD groups use absolute positioning inside `world-card`; there should be no external page gutter or control strip. Keep touch targets generous. Check that the title, health/star/FPS display, D-pad, jump, sword, tool dock, and optional build palette do not overlap on narrow screens or landscape mobile layouts.
 
 Walking may change animation or cursor styling, but it must not visually imply that controls are locked. The walking canvas cursor remains interactive.
 
@@ -134,15 +147,17 @@ Tablet stability takes priority over maximum backing-store resolution. Preserve 
 
 - Detect low-power rendering through capabilities such as a coarse pointer, touch input, limited logical CPU count, or limited reported device memory; do not maintain a device or user-agent list.
 - Keep terrain/flowers on `world-terrain-canvas` and moving entities/effects on the transparent `world-canvas`. Move the terrain layer with `translate3d`; never copy the full terrain cache into the dynamic Canvas on every frame.
-- Cap ordinary touch tablets at 20 FPS, `0.8x`, and a 650,000-pixel dynamic Canvas budget. CPU/memory-constrained or adaptively degraded devices use 18 FPS, `0.6x`, and 420,000 pixels. Low-power scale may fall to `0.45x`; do not restore a `1x` minimum there. Keep the full profile capped at `2x` and six million pixels.
+- Cap ordinary touch tablets at 30 FPS, `0.8x`, and a 650,000-pixel dynamic Canvas budget. CPU/memory-constrained or adaptively degraded devices use 20 FPS, `0.6x`, and 420,000 pixels. Low-power scale may fall to `0.45x`; do not restore a `1x` minimum there. Keep the full profile capped at `2x` and six million pixels.
 - Cache block faces in a small sprite atlas. Rebuild terrain only after a roughly two-cell camera shift, a viewport/profile change, or a new `world` reference.
 - Keep flowers static inside the terrain layer and disable decorative star motion on low-power profiles. Creatures, enemies, the player, and short gameplay effects remain dynamic and visibility-culled.
-- Preserve the adaptive draw-cost downgrade from the tablet profile to the constrained profile; it covers touch devices whose CPU or memory capability reporting is overly optimistic.
+- Preserve the adaptive draw-cost and measured-FPS downgrade from the tablet profile to the constrained profile; it covers touch devices whose CPU or memory capability reporting is overly optimistic.
 - Disable backdrop blur, large composited overlay shadows, and looping danger animation for coarse-pointer/no-hover devices. Keep the controls visually clear with opaque backgrounds instead.
 - Read Canvas dimensions from the ResizeObserver-maintained ref instead of forcing a layout read in every animation frame.
 - Skip drawing while the document is hidden, avoid a continuous pre-game loop on low-power devices, and keep star data in `starsRef`; spawning or collecting a star must not require a React render solely to refresh Canvas data.
 
 Do not return to an unconditional `devicePixelRatio` scale, redraw every terrain polygon on every animation frame, or merge the two Canvas layers without device measurements. When performance-related code changes, validate both production builds and keep the source assertions for the render budgets, sprite atlas, layer separation, and terrain cache.
+
+The visible FPS badge counts completed game draws, not raw `requestAnimationFrame` callbacks. Preserve these thresholds exactly: under 20 red, 20–29 orange, 30–34 yellow, and 35 or more green. Updating the badge once per roughly one-second sample is intentional; never move its value into per-frame React state.
 
 ## Validation workflow
 
