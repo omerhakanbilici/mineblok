@@ -36,6 +36,7 @@ test("server-renders the full-screen block world HUD", async () => {
   assert.match(html, /Uçsuz bucaksız Mineblok dünyası seni bekliyor!/);
   assert.doesNotMatch(html, /class="hint-bubble"/);
   assert.match(html, /class="scene-topbar"[\s\S]*class="scene-brand"[\s\S]*class="top-actions"/);
+  assert.match(html, /aria-label="100 can kaldı"/);
   assert.match(html, /aria-label="0 yıldız toplandı"/);
   assert.doesNotMatch(html, /0[\s\S]{0,30}\/ 3/);
   assert.match(html, /class="world-card"[\s\S]*class="tool-dock [^"]*"[\s\S]*<\/section>/);
@@ -44,7 +45,7 @@ test("server-renders the full-screen block world HUD", async () => {
   assert.match(html, />GERİ AL<\/strong>/);
 });
 
-test("keeps camera, wandering animals, and every control inside the game scene", async () => {
+test("keeps camera, creatures, combat, and every control inside the game scene", async () => {
   const [game, css, page, layout] = await Promise.all([
     readFile(new URL("../app/BlockGardenWorld.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/world.css", import.meta.url), "utf8"),
@@ -53,8 +54,14 @@ test("keeps camera, wandering animals, and every control inside the game scene",
   ]);
 
   assert.match(game, /const WORLD_SIZE = 100;/);
+  assert.match(game, /const MAX_HEALTH = 100;/);
+  assert.match(game, /const CONTACT_DAMAGE = 2;/);
   assert.match(game, /cameraRef\.current = playerWorld;/);
   assert.match(game, /drawVoxelPlayer/);
+  assert.match(game, /function drawPlayerArm/);
+  assert.match(game, /stepArc \* 2\.25/);
+  assert.match(game, /stepArc \* 1\.45/);
+  assert.match(game, /swordSwingProgress/);
   assert.match(game, /const surfaceY = center\.y \+ metrics\.tileH \* 0\.03;/);
   assert.match(game, /const shoeHeight = 7 \* unit;/);
   assert.match(game, /const climbLift = pose\.elevationDelta > 0/);
@@ -63,6 +70,15 @@ test("keeps camera, wandering animals, and every control inside the game scene",
   assert.match(game, /function updateAnimal/);
   assert.match(game, /duration: 1150 \+ Math\.random\(\) \* 450/);
   assert.match(game, /type AnimalKind = "sheep" \| "chick" \| "cow" \| "pig" \| "rabbit";/);
+  assert.match(game, /type EnemyState =/);
+  assert.match(game, /function drawVoxelEnemy/);
+  assert.match(game, /function updateEnemy/);
+  assert.match(game, /function drawDustBurst/);
+  assert.match(game, /const removeAnimalNear = useCallback/);
+  assert.match(game, /const swingSword = useCallback/);
+  assert.match(game, /healthRef\.current - CONTACT_DAMAGE/);
+  assert.match(game, /event\.code === "Space"/);
+  assert.match(game, /className=\{`sword-button/);
   assert.match(game, /function makeInitialStars/);
   assert.match(game, /starsRef\.current\.length >= 32/);
   assert.match(game, /setStarCount\(starCountRef\.current\)/);
@@ -74,6 +90,8 @@ test("keeps camera, wandering animals, and every control inside the game scene",
   assert.match(css, /\.game-shell,[\s\S]*\.world-card[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;/);
   assert.match(css, /\.world-canvas[\s\S]*width:\s*100%;[\s\S]*height:\s*100%;/);
   assert.match(css, /\.tool-dock[\s\S]*position:\s*absolute;/);
+  assert.match(css, /\.sword-button[\s\S]*position:\s*absolute;/);
+  assert.match(css, /\.health-goal\.danger/);
   assert.match(css, /\.scene-topbar[\s\S]*justify-content:\s*space-between;/);
   assert.match(page, /import BlockGardenWorld from "\.\/BlockGardenWorld";/);
   assert.match(layout, /import "\.\/world\.css";/);

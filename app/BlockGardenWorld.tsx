@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const WORLD_SIZE = 100;
 const MAX_HEIGHT = 6;
+const MAX_HEALTH = 100;
+const CONTACT_DAMAGE = 2;
+const ATTACK_RANGE = 1.45;
 const START_POINT = { x: 50, y: 50 };
 
 type Mode = "walk" | "build" | "remove";
@@ -24,6 +27,7 @@ type PlayerPose = {
   walking: boolean;
   stepProgress: number;
   elevationDelta: number;
+  swordSwingProgress: number | null;
 };
 type StarState = Point & { id: string };
 type AnimalKind = "sheep" | "chick" | "cow" | "pig" | "rabbit";
@@ -41,6 +45,21 @@ type AnimalState = {
   y: number;
   motion: AnimalMotion | null;
   nextMoveAt: number;
+};
+type EnemyState = {
+  id: string;
+  x: number;
+  y: number;
+  motion: AnimalMotion | null;
+  nextMoveAt: number;
+};
+type DustBurst = {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  startedAt: number;
+  color: string;
 };
 type Metrics = {
   width: number;
@@ -179,6 +198,44 @@ function makeInitialStars(world: World): StarState[] {
     if (point) stars.push({ ...point, id: `ilk-yildiz-${index}` });
   }
   return stars;
+}
+
+function findEnemySpot(world: World, origin: Point | null, occupied: Point[]): Point | null {
+  for (let attempt = 0; attempt < 700; attempt += 1) {
+    let x: number;
+    let y: number;
+    if (origin) {
+      const radius = 7 + Math.floor(Math.random() * 10);
+      const angle = Math.random() * Math.PI * 2;
+      x = Math.round(origin.x + Math.cos(angle) * radius);
+      y = Math.round(origin.y + Math.sin(angle) * radius);
+    } else {
+      x = 5 + Math.floor(Math.random() * (WORLD_SIZE - 10));
+      y = 5 + Math.floor(Math.random() * (WORLD_SIZE - 10));
+    }
+    if (x < 3 || y < 3 || x >= WORLD_SIZE - 3 || y >= WORLD_SIZE - 3) continue;
+    if (world[y][x].length === 0) continue;
+    if (Math.hypot(x - START_POINT.x, y - START_POINT.y) < 6) continue;
+    if (occupied.some((point) => point.x === x && point.y === y)) continue;
+    if (ANIMAL_SPAWNS.some((animal) => Math.hypot(animal.x - x, animal.y - y) < 2)) continue;
+    return { x, y };
+  }
+  return null;
+}
+
+function makeEnemies(world: World): EnemyState[] {
+  const enemies: EnemyState[] = [];
+  for (let index = 0; index < 10; index += 1) {
+    const point = findEnemySpot(world, index < 4 ? START_POINT : null, enemies);
+    if (!point) continue;
+    enemies.push({
+      ...point,
+      id: `golge-${index}`,
+      motion: null,
+      nextMoveAt: 1500 + index * 520,
+    });
+  }
+  return enemies;
 }
 
 function polygon(
@@ -408,6 +465,45 @@ function drawCuboid(
   );
 }
 
+function drawPlayerArm(
+  context: CanvasRenderingContext2D,
+  pivotX: number,
+  pivotY: number,
+  angle: number,
+  unit: number,
+  swordSwingProgress: number | null,
+) {
+  const armLength = 36 * unit;
+  context.save();
+  context.translate(pivotX, pivotY);
+  context.rotate(angle);
+  drawCuboid(context, 0, armLength, 9 * unit, armLength, 3 * unit, {
+    front: "#d9a06d",
+    side: "#aa724a",
+    top: "#efbd8b",
+  });
+  context.restore();
+
+  if (swordSwingProgress === -1) return;
+  const handX = pivotX - Math.sin(angle) * armLength;
+  const handY = pivotY + Math.cos(angle) * armLength;
+  const swordAngle =
+    swordSwingProgress === null ? 0.62 : -0.55 + swordSwingProgress * 2.2;
+  context.save();
+  context.translate(handX, handY);
+  context.rotate(swordAngle);
+  context.fillStyle = "#70472f";
+  context.fillRect(-2.5 * unit, -2 * unit, 5 * unit, 13 * unit);
+  context.fillStyle = "#e4b94d";
+  context.fillRect(-9 * unit, -5 * unit, 18 * unit, 4.5 * unit);
+  drawCuboid(context, 0, -5 * unit, 7 * unit, 35 * unit, 3 * unit, {
+    front: "#e9f3f4",
+    side: "#8ca9b1",
+    top: "#ffffff",
+  });
+  context.restore();
+}
+
 function drawVoxelPlayer(
   context: CanvasRenderingContext2D,
   center: ScreenPoint,
@@ -462,19 +558,34 @@ function drawVoxelPlayer(
     side: "#25747d",
     top: "#62bbc0",
   });
-  const armSpread = pose.elevationDelta < 0 ? stepArc * 5 * unit : 0;
-  const leftArmLift = pose.elevationDelta > 0 ? Math.max(0, phase) * 11 * unit + stepArc * 4 * unit : 0;
-  const rightArmLift = pose.elevationDelta > 0 ? Math.max(0, -phase) * 11 * unit + stepArc * 4 * unit : 0;
-  drawCuboid(context, center.x - 21 * unit - phase * 3 * unit - armSpread, bodyBottom - 2 * unit - leftArmLift, 9 * unit, 36 * unit, 3 * unit, {
-    front: "#d9a06d",
-    side: "#aa724a",
-    top: "#efbd8b",
-  });
-  drawCuboid(context, center.x + 21 * unit + phase * 3 * unit + armSpread, bodyBottom - 2 * unit - rightArmLift, 9 * unit, 36 * unit, 3 * unit, {
-    front: "#d9a06d",
-    side: "#aa724a",
-    top: "#efbd8b",
-  });
+  const elevationArmAngle =
+    pose.elevationDelta > 0
+      ? stepArc * 2.25
+      : pose.elevationDelta < 0
+        ? stepArc * 1.45
+        : 0;
+  const walkingArmAngle = phase * 0.22;
+  const swordArmSwing =
+    pose.swordSwingProgress === null
+      ? 0
+      : Math.sin(Math.PI * pose.swordSwingProgress) * 1.1;
+  const shoulderY = bodyBottom - 36 * unit;
+  drawPlayerArm(
+    context,
+    center.x - 18 * unit,
+    shoulderY,
+    elevationArmAngle + walkingArmAngle,
+    unit,
+    -1,
+  );
+  drawPlayerArm(
+    context,
+    center.x + 18 * unit,
+    shoulderY,
+    -elevationArmAngle - walkingArmAngle + swordArmSwing,
+    unit,
+    pose.swordSwingProgress,
+  );
 
   const headBottom = bodyBottom - 38 * unit;
   drawCuboid(context, center.x, headBottom, 35 * unit, 35 * unit, 9 * unit, {
@@ -641,8 +752,102 @@ function drawVoxelAnimal(
   });
 }
 
+function drawVoxelEnemy(
+  context: CanvasRenderingContext2D,
+  center: ScreenPoint,
+  metrics: Metrics,
+  time: number,
+  walking: boolean,
+) {
+  const unit = metrics.tileW / 108;
+  const phase = walking ? Math.sin(time * 0.022) : 0;
+  const groundY = center.y + metrics.tileH * 0.02;
+  const pulse = 0.72 + Math.sin(time * 0.008) * 0.14;
+
+  context.fillStyle = `rgba(116, 28, 63, ${pulse * 0.25})`;
+  context.beginPath();
+  context.ellipse(center.x + 3 * unit, groundY + 3 * unit, 24 * unit, 10 * unit, 0, 0, Math.PI * 2);
+  context.fill();
+
+  for (const offset of [-8, 8]) {
+    drawCuboid(context, center.x + offset * unit + phase * 2 * unit, groundY, 12 * unit, 28 * unit, 4 * unit, {
+      front: "#52193e",
+      side: "#2f1027",
+      top: "#762756",
+    });
+  }
+  const bodyBottom = groundY - 26 * unit;
+  drawCuboid(context, center.x, bodyBottom, 34 * unit, 38 * unit, 8 * unit, {
+    front: "#b52c45",
+    side: "#711b39",
+    top: "#e34a55",
+  });
+  drawCuboid(context, center.x - 23 * unit - phase * 2 * unit, bodyBottom - 1 * unit, 9 * unit, 34 * unit, 3 * unit, {
+    front: "#76204b",
+    side: "#47152f",
+    top: "#a03264",
+  });
+  drawCuboid(context, center.x + 23 * unit + phase * 2 * unit, bodyBottom - 1 * unit, 9 * unit, 34 * unit, 3 * unit, {
+    front: "#76204b",
+    side: "#47152f",
+    top: "#a03264",
+  });
+  const headBottom = bodyBottom - 37 * unit;
+  drawCuboid(context, center.x, headBottom, 34 * unit, 34 * unit, 9 * unit, {
+    front: "#6f2148",
+    side: "#41132f",
+    top: "#98305b",
+  });
+  polygon(context, [[center.x - 15 * unit, headBottom - 32 * unit], [center.x - 22 * unit, headBottom - 51 * unit], [center.x - 5 * unit, headBottom - 35 * unit]], "#351026", "transparent");
+  polygon(context, [[center.x + 15 * unit, headBottom - 32 * unit], [center.x + 22 * unit, headBottom - 51 * unit], [center.x + 5 * unit, headBottom - 35 * unit]], "#351026", "transparent");
+  context.fillStyle = "#ffe04e";
+  context.fillRect(center.x - 12 * unit, headBottom - 26 * unit, 9 * unit, 5 * unit);
+  context.fillRect(center.x + 4 * unit, headBottom - 26 * unit, 9 * unit, 5 * unit);
+  context.fillStyle = "#2a0a1d";
+  context.fillRect(center.x - 2 * unit, headBottom - 12 * unit, 10 * unit, 3 * unit);
+}
+
+function drawDustBurst(
+  context: CanvasRenderingContext2D,
+  burst: DustBurst,
+  metrics: Metrics,
+  time: number,
+) {
+  const progress = Math.min(1, Math.max(0, (time - burst.startedAt) / 720));
+  const center = tileCenter(burst.x, burst.y, burst.z + 1, metrics);
+  const unit = metrics.tileW / 100;
+  context.save();
+  context.globalAlpha = 1 - progress;
+  for (let index = 0; index < 18; index += 1) {
+    const angle = (index / 18) * Math.PI * 2 + index * 0.31;
+    const distance = progress * (14 + (index % 5) * 5) * unit;
+    const size = (4 + (index % 3) * 2) * unit * (1 - progress * 0.45);
+    const x = center.x + Math.cos(angle) * distance;
+    const y = center.y - metrics.blockH * 0.28 + Math.sin(angle) * distance - progress * 12 * unit;
+    context.fillStyle = index % 3 === 0 ? "#f4ead8" : burst.color;
+    context.fillRect(x - size / 2, y - size / 2, size, size);
+  }
+  context.restore();
+}
+
 function isSamePoint(a: Point, b: Point) {
   return a.x === b.x && a.y === b.y;
+}
+
+function movingEntityPoint(
+  entity: { x: number; y: number; motion: AnimalMotion | null },
+  time: number,
+): Point {
+  if (!entity.motion) return { x: entity.x, y: entity.y };
+  const progress = Math.min(
+    1,
+    Math.max(0, (time - entity.motion.startedAt) / entity.motion.duration),
+  );
+  const eased = progress * progress * (3 - 2 * progress);
+  return {
+    x: entity.motion.from.x + (entity.motion.to.x - entity.motion.from.x) * eased,
+    y: entity.motion.from.y + (entity.motion.to.y - entity.motion.from.y) * eased,
+  };
 }
 
 function isWalkable(world: World, from: Point, to: Point) {
@@ -745,6 +950,56 @@ function updateAnimal(animal: AnimalState, world: World, time: number, active: b
   };
 }
 
+function updateEnemy(enemy: EnemyState, world: World, time: number, active: boolean) {
+  if (enemy.motion && time - enemy.motion.startedAt >= enemy.motion.duration) {
+    enemy.x = enemy.motion.to.x;
+    enemy.y = enemy.motion.to.y;
+    enemy.motion = null;
+    enemy.nextMoveAt = time + 700 + Math.random() * 1300;
+  }
+
+  if (!enemy.motion && active && time >= enemy.nextMoveAt) {
+    const current = { x: enemy.x, y: enemy.y };
+    const options = [
+      { x: enemy.x - 1, y: enemy.y },
+      { x: enemy.x + 1, y: enemy.y },
+      { x: enemy.x, y: enemy.y - 1 },
+      { x: enemy.x, y: enemy.y + 1 },
+    ].filter((next) => isWalkable(world, current, next));
+    const next = options[Math.floor(Math.random() * options.length)];
+    if (next) {
+      enemy.motion = {
+        from: current,
+        to: next,
+        startedAt: time,
+        duration: 820 + Math.random() * 380,
+      };
+    } else {
+      enemy.nextMoveAt = time + 1200;
+    }
+  }
+
+  if (!enemy.motion) {
+    return {
+      x: enemy.x,
+      y: enemy.y,
+      z: Math.max(0, world[enemy.y][enemy.x].length - 1),
+      moving: false,
+    };
+  }
+
+  const progress = Math.min(1, Math.max(0, (time - enemy.motion.startedAt) / enemy.motion.duration));
+  const eased = progress * progress * (3 - 2 * progress);
+  const fromHeight = world[enemy.motion.from.y][enemy.motion.from.x].length - 1;
+  const toHeight = world[enemy.motion.to.y][enemy.motion.to.x].length - 1;
+  return {
+    x: enemy.motion.from.x + (enemy.motion.to.x - enemy.motion.from.x) * eased,
+    y: enemy.motion.from.y + (enemy.motion.to.y - enemy.motion.from.y) * eased,
+    z: fromHeight + (toHeight - fromHeight) * eased,
+    moving: true,
+  };
+}
+
 export default function BlockGardenWorld() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<AudioContext | null>(null);
@@ -761,13 +1016,25 @@ export default function BlockGardenWorld() {
   const starIdRef = useRef(stars.length);
   const starCountRef = useRef(0);
   const animalsRef = useRef<AnimalState[]>(makeAnimals());
+  const [initialEnemies] = useState<EnemyState[]>(() => makeEnemies(world));
+  const enemiesRef = useRef<EnemyState[]>(initialEnemies);
+  const enemyIdRef = useRef(10);
+  const dustRef = useRef<DustBurst[]>([]);
+  const dustIdRef = useRef(0);
+  const swordSwingStartedAtRef = useRef(-1000);
+  const dangerStartedAtRef = useRef<number | null>(null);
+  const lastDamageAtRef = useRef(0);
+  const dangerNearbyRef = useRef(false);
+  const healthRef = useRef(MAX_HEALTH);
   const [starCount, setStarCount] = useState(0);
+  const [health, setHealth] = useState(MAX_HEALTH);
+  const [dangerNearby, setDangerNearby] = useState(false);
   const [message, setMessage] = useState("Gitmek istediğin yere dokun");
   const [soundOn, setSoundOn] = useState(true);
   const [isWalking, setIsWalking] = useState(false);
 
   const playSound = useCallback(
-    (kind: "start" | "step" | "build" | "remove" | "star" | "hello" | "oops") => {
+    (kind: "start" | "step" | "build" | "remove" | "star" | "hello" | "oops" | "hit" | "hurt") => {
       if (!soundOn || typeof window === "undefined") return;
       const AudioConstructor =
         window.AudioContext ||
@@ -784,12 +1051,14 @@ export default function BlockGardenWorld() {
         star: [523, 659, 784, 1046],
         hello: [659, 784],
         oops: [220, 196],
+        hit: [520, 330],
+        hurt: [180, 145],
       };
       notes[kind].forEach((frequency, index) => {
         const oscillator = audio.createOscillator();
         const gain = audio.createGain();
         const begins = audio.currentTime + index * 0.085;
-        oscillator.type = kind === "remove" || kind === "oops" ? "triangle" : "sine";
+        oscillator.type = kind === "remove" || kind === "oops" || kind === "hurt" ? "triangle" : "sine";
         oscillator.frequency.setValueAtTime(frequency, begins);
         gain.gain.setValueAtTime(0.0001, begins);
         gain.gain.exponentialRampToValueAtTime(kind === "step" ? 0.03 : 0.07, begins + 0.015);
@@ -823,13 +1092,20 @@ export default function BlockGardenWorld() {
       const height = bounds.height;
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const time = reducedMotion ? 0 : rawTime;
+      const swingAge = rawTime - swordSwingStartedAtRef.current;
+      const swordSwingProgress = swingAge >= 0 && swingAge < 380 ? swingAge / 380 : null;
 
       let playerWorld: WorldPosition = {
         x: playerRef.current.x,
         y: playerRef.current.y,
         z: Math.max(0, world[playerRef.current.y][playerRef.current.x].length - 1),
       };
-      let playerPose: PlayerPose = { walking: false, stepProgress: 0, elevationDelta: 0 };
+      let playerPose: PlayerPose = {
+        walking: false,
+        stepProgress: 0,
+        elevationDelta: 0,
+        swordSwingProgress,
+      };
       const activeMotion = walkRef.current;
       if (activeMotion) {
         if (rawTime - activeMotion.startedAt >= activeMotion.duration) {
@@ -871,6 +1147,7 @@ export default function BlockGardenWorld() {
             walking: true,
             stepProgress: rawProgress,
             elevationDelta: Math.sign(toHeight - fromHeight),
+            swordSwingProgress,
           };
         } else {
           playerWorld = {
@@ -941,6 +1218,17 @@ export default function BlockGardenWorld() {
         }
       }
 
+      for (const enemy of enemiesRef.current) {
+        const rendered = updateEnemy(enemy, world, rawTime, started);
+        const center = tileCenter(rendered.x, rendered.y, rendered.z + 1, metrics);
+        if (center.x > -120 && center.x < width + 120 && center.y > -120 && center.y < height + 120) {
+          drawVoxelEnemy(context, center, metrics, time, rendered.moving);
+        }
+      }
+
+      dustRef.current = dustRef.current.filter((burst) => rawTime - burst.startedAt < 720);
+      for (const burst of dustRef.current) drawDustBurst(context, burst, metrics, rawTime);
+
       const playerCenter = tileCenter(playerWorld.x, playerWorld.y, playerWorld.z + 1, metrics);
       drawVoxelPlayer(context, playerCenter, metrics, time, playerPose);
     },
@@ -974,6 +1262,32 @@ export default function BlockGardenWorld() {
     return () => window.clearInterval(timer);
   }, [started, world]);
 
+  useEffect(() => {
+    if (!started) return;
+    const timer = window.setInterval(() => {
+      if (enemiesRef.current.length >= 18) return;
+      const occupied: Point[] = [
+        ...enemiesRef.current.map((enemy) => movingEntityPoint(enemy, performance.now())),
+        ...animalsRef.current.map((animal) => movingEntityPoint(animal, performance.now())),
+        ...starsRef.current,
+      ];
+      const point = findEnemySpot(
+        world,
+        Math.random() < 0.55 ? playerRef.current : null,
+        occupied,
+      );
+      if (!point) return;
+      enemyIdRef.current += 1;
+      enemiesRef.current.push({
+        ...point,
+        id: `gezgin-golge-${enemyIdRef.current}`,
+        motion: null,
+        nextMoveAt: performance.now() + 900,
+      });
+    }, 6800);
+    return () => window.clearInterval(timer);
+  }, [started, world]);
+
   const collectAt = useCallback(
     (point: Point) => {
       const star = starsRef.current.find((candidate) => isSamePoint(candidate, point));
@@ -998,21 +1312,161 @@ export default function BlockGardenWorld() {
     [playSound, world],
   );
 
+  const addDust = useCallback(
+    (point: Point, color: string) => {
+      const tileX = Math.max(0, Math.min(WORLD_SIZE - 1, Math.round(point.x)));
+      const tileY = Math.max(0, Math.min(WORLD_SIZE - 1, Math.round(point.y)));
+      dustIdRef.current += 1;
+      dustRef.current.push({
+        id: `toz-${dustIdRef.current}`,
+        x: point.x,
+        y: point.y,
+        z: Math.max(0, world[tileY][tileX].length - 1),
+        startedAt: performance.now(),
+        color,
+      });
+      if (dustRef.current.length > 30) dustRef.current.shift();
+    },
+    [world],
+  );
+
+  const removeAnimalNear = useCallback(
+    (point: Point) => {
+      const now = performance.now();
+      let nearest: { animal: AnimalState; position: Point; distance: number } | null = null;
+      for (const animal of animalsRef.current) {
+        const position = movingEntityPoint(animal, now);
+        const distance = Math.hypot(position.x - point.x, position.y - point.y);
+        if (distance <= ATTACK_RANGE && (!nearest || distance < nearest.distance)) {
+          nearest = { animal, position, distance };
+        }
+      }
+      if (!nearest) return false;
+
+      animalsRef.current = animalsRef.current.filter(
+        (animal) => animal.id !== nearest?.animal.id,
+      );
+      swordSwingStartedAtRef.current = now;
+      addDust(nearest.position, "#c9b38f");
+      playSound("hit");
+      setMessage("Şak! Hayvan küçük bir toz bulutuyla kayboldu");
+      return true;
+    },
+    [addDust, playSound],
+  );
+
+  const swingSword = useCallback(() => {
+    const now = performance.now();
+    swordSwingStartedAtRef.current = now;
+    const player = playerRef.current;
+    let nearest: { enemy: EnemyState; position: Point; distance: number } | null = null;
+    for (const enemy of enemiesRef.current) {
+      const position = movingEntityPoint(enemy, now);
+      const distance = Math.hypot(position.x - player.x, position.y - player.y);
+      if (distance <= ATTACK_RANGE && (!nearest || distance < nearest.distance)) {
+        nearest = { enemy, position, distance };
+      }
+    }
+
+    if (nearest) {
+      enemiesRef.current = enemiesRef.current.filter(
+        (enemy) => enemy.id !== nearest?.enemy.id,
+      );
+      addDust(nearest.position, "#a52e55");
+      dangerStartedAtRef.current = null;
+      lastDamageAtRef.current = now;
+      dangerNearbyRef.current = false;
+      setDangerNearby(false);
+      playSound("hit");
+      setMessage("Harika vuruş! Kötü gölge toz olup kayboldu");
+      return;
+    }
+
+    if (!removeAnimalNear(player)) {
+      playSound("hit");
+      setMessage("Kılıç hazır — biraz daha yaklaş!");
+    }
+  }, [addDust, playSound, removeAnimalNear]);
+
+  useEffect(() => {
+    if (!started) return;
+    const timer = window.setInterval(() => {
+      removeAnimalNear(playerRef.current);
+    }, 140);
+    return () => window.clearInterval(timer);
+  }, [removeAnimalNear, started]);
+
+  useEffect(() => {
+    if (!started) return;
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      const player = playerRef.current;
+      const enemyNearby = enemiesRef.current.some((enemy) => {
+        const position = movingEntityPoint(enemy, now);
+        return Math.hypot(position.x - player.x, position.y - player.y) <= ATTACK_RANGE;
+      });
+
+      if (!enemyNearby) {
+        dangerStartedAtRef.current = null;
+        lastDamageAtRef.current = 0;
+        if (dangerNearbyRef.current) {
+          dangerNearbyRef.current = false;
+          setDangerNearby(false);
+        }
+        return;
+      }
+
+      if (!dangerNearbyRef.current) {
+        dangerNearbyRef.current = true;
+        setDangerNearby(true);
+      }
+      if (dangerStartedAtRef.current === null) {
+        dangerStartedAtRef.current = now;
+        lastDamageAtRef.current = now;
+        setMessage("Dikkat! Kılıcı kullan, gölge çok yakında");
+        return;
+      }
+      if (
+        now - dangerStartedAtRef.current < 1200 ||
+        now - lastDamageAtRef.current < 1200
+      ) {
+        return;
+      }
+
+      lastDamageAtRef.current = now;
+      const nextHealth = Math.max(0, healthRef.current - CONTACT_DAMAGE);
+      healthRef.current = nextHealth;
+      setHealth(nextHealth);
+      playSound("hurt");
+      setMessage(`Dikkat! Canın ${nextHealth} oldu`);
+
+      if (nextHealth === 0) {
+        walkRef.current = null;
+        playerRef.current = { ...START_POINT };
+        cameraRef.current = { x: START_POINT.x, y: START_POINT.y, z: 0 };
+        healthRef.current = MAX_HEALTH;
+        dangerStartedAtRef.current = null;
+        lastDamageAtRef.current = 0;
+        dangerNearbyRef.current = false;
+        setHealth(MAX_HEALTH);
+        setDangerNearby(false);
+        setIsWalking(false);
+        setMessage("Mino dinlendi ve yeniden 100 canla hazır!");
+      }
+    }, 140);
+    return () => window.clearInterval(timer);
+  }, [playSound, started]);
+
   const handleArrival = useCallback(
     (point: Point, finalStep: boolean) => {
+      const clearedAnimal = removeAnimalNear(point);
       const foundStar = collectAt(point);
-      if (!finalStep || foundStar) return;
-      const animal = animalsRef.current.find(
-        (candidate) => Math.hypot(candidate.x - point.x, candidate.y - point.y) < 0.9,
-      );
-      if (animal) {
-        setMessage(animal.greeting);
-        playSound("hello");
-      } else {
+      if (!finalStep || foundStar || clearedAnimal) return;
+      if (!dangerNearbyRef.current) {
         setMessage("Dünya seninle birlikte kayıyor — keşfetmeye devam!");
       }
     },
-    [collectAt, playSound],
+    [collectAt, removeAnimalNear],
   );
 
   useEffect(() => {
@@ -1057,8 +1511,14 @@ export default function BlockGardenWorld() {
   );
 
   useEffect(() => {
-    if (!started || isWalking) return;
+    if (!started) return;
     const handleKey = (event: KeyboardEvent) => {
+      if (event.code === "Space") {
+        event.preventDefault();
+        swingSword();
+        return;
+      }
+      if (isWalking) return;
       const current = playerRef.current;
       const moves: Record<string, Point> = {
         ArrowUp: { x: current.x - 1, y: current.y },
@@ -1077,7 +1537,7 @@ export default function BlockGardenWorld() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isWalking, moveTo, started]);
+  }, [isWalking, moveTo, started, swingSword]);
 
   const findTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1129,12 +1589,17 @@ export default function BlockGardenWorld() {
       const target = animal.motion?.to;
       return isSamePoint(animal, point) || (target ? isSamePoint(target, point) : false);
     });
+    const enemySpot = enemiesRef.current.some((enemy) => {
+      const target = enemy.motion?.to;
+      return isSamePoint(enemy, point) || (target ? isSamePoint(target, point) : false);
+    });
     const protectedSpot =
       isSamePoint(playerRef.current, point) ||
       animalSpot ||
+      enemySpot ||
       starsRef.current.some((star) => isSamePoint(star, point));
     if (protectedSpot) {
-      setMessage("Mino, hayvanlar ve yıldızlar için burayı boş bırakalım");
+      setMessage("Mino, canlılar ve yıldızlar için burayı boş bırakalım");
       playSound("oops");
       return;
     }
@@ -1189,9 +1654,20 @@ export default function BlockGardenWorld() {
     starIdRef.current = nextStars.length;
     starCountRef.current = 0;
     animalsRef.current = makeAnimals();
+    enemiesRef.current = makeEnemies(nextWorld);
+    enemyIdRef.current = enemiesRef.current.length;
+    dustRef.current = [];
+    dustIdRef.current = 0;
+    swordSwingStartedAtRef.current = -1000;
+    dangerStartedAtRef.current = null;
+    lastDamageAtRef.current = 0;
+    dangerNearbyRef.current = false;
+    healthRef.current = MAX_HEALTH;
     setWorld(nextWorld);
     setStars(nextStars);
     setStarCount(0);
+    setHealth(MAX_HEALTH);
+    setDangerNearby(false);
     setMode("walk");
     setSelectedBlock("grass");
     setIsWalking(false);
@@ -1236,6 +1712,13 @@ export default function BlockGardenWorld() {
             <h1>Mineblok</h1>
           </div>
           <div className="top-actions">
+            <div
+              className={`health-goal${dangerNearby ? " danger" : ""}`}
+              aria-label={`${health} can kaldı`}
+            >
+              <span aria-hidden="true">❤️</span>
+              <strong>{health}</strong>
+            </div>
             <div className="star-goal" aria-label={`${starCount} yıldız toplandı`}>
               <span aria-hidden="true">⭐</span>
               <strong>{starCount}</strong>
@@ -1262,7 +1745,7 @@ export default function BlockGardenWorld() {
               <span aria-hidden="true">▶</span> OYNA
             </button>
             <div className="safe-note" aria-label="Çocuklar için güvenlik özellikleri">
-              <span>100 × 100 dünya</span><span>Reklam yok</span><span>Kaybetmek yok</span>
+              <span>100 × 100 dünya</span><span>100 can</span><span>Reklam yok</span>
             </div>
           </div>
         )}
@@ -1278,6 +1761,17 @@ export default function BlockGardenWorld() {
                 <button type="button" className="dpad-southeast" onClick={() => step("southeast")} aria-label="Sağ aşağı yürü" disabled={isWalking}>↘</button>
               </div>
             )}
+            <button
+              type="button"
+              className={`sword-button${dangerNearby ? " danger" : ""}`}
+              onClick={swingSword}
+              aria-label="Kılıçla vur"
+              title="Kılıçla vur (Boşluk tuşu)"
+            >
+              <span aria-hidden="true">⚔️</span>
+              <strong>KILIÇ</strong>
+              <small>BOŞLUK</small>
+            </button>
           </>
         )}
 
