@@ -6,7 +6,7 @@ Read `README.md` before changing the project. This file is the implementation co
 
 Mineblok is a Turkish, child-friendly block-world playground designed to be understandable to a four-year-old. It should feel playful, forgiving, colorful, and immediately usable with touch. Combat is toy-like: there is no blood, injury detail, frightening copy, or graphic effect.
 
-The live site is `https://mineblok.hakanbil.chatgpt.site/`. It is intentionally public so guests can play without ChatGPT sign-in. The game has no account-dependent backend or server-side personal data. The existing Sites project ID is declared in `.openai/hosting.json`; reuse it. Do not create a replacement project when updating this game.
+The primary live site is the Render Static Site at `https://mineblok.onrender.com/`. The secondary live site is the OpenAI Sites deployment at `https://mineblok.hakanbil.chatgpt.site/`. Both are intentionally public so guests can play without ChatGPT sign-in. The game has no account-dependent backend or server-side personal data. The existing Sites project ID is declared in `.openai/hosting.json`; reuse it. Do not create a replacement project when updating this game.
 
 ## Non-negotiable behavior
 
@@ -148,18 +148,20 @@ For meaningful interaction or layout changes, also start `npm run dev`, open `ht
 
 Mineblok has two intentionally separate production targets:
 
-- `npm run build` keeps the existing Sites/Cloudflare Worker output.
-- `npm run build:render` sets `RENDER_STATIC_EXPORT=true` and produces the Render Static Site in `dist/client`.
+- Primary: `npm run build:render` sets `RENDER_STATIC_EXPORT=true` and produces the Render Static Site in `dist/client`.
+- Secondary: `npm run build` keeps the existing Sites/Cloudflare Worker output.
 
 Keep the conditional `output: "export"` in `next.config.ts` and the conditional Sites/Cloudflare plugins in `vite.config.ts`. Never make static export the unconditional default: that would break the Sites packaging contract. Never publish `dist/server` as the Render Static Site directory.
 
-`render.yaml` is the authoritative Render configuration. It must continue to use the personal public repository `https://github.com/omerhakanbilici/mineblok`, branch `main`, build command `npm run build:render`, publish path `./dist/client`, and commit-triggered auto deploy. Do not switch the repository owner to an organization.
+`render.yaml` is the authoritative configuration for the primary deployment. It must continue to use the personal public repository `https://github.com/omerhakanbilici/mineblok`, branch `main`, build command `npm run build:render`, publish path `./dist/client`, and commit-triggered auto deploy. Keep the Render GitHub App scoped only to this personal repository. Do not broaden its access or switch the repository owner to an organization.
 
-## Render publishing workflow
+## Primary Render publishing workflow
 
-The initial service is a free Render Static Site, not a Free Web Service. Connect Render to the personal GitHub repository, create/sync the root `render.yaml` Blueprint, and verify the final `onrender.com` URL. After the initial connection, pushes to `main` should deploy automatically. OAuth or Google sign-in must be completed by the user; never request or store credentials.
+The primary production URL is `https://mineblok.onrender.com/`. The service is a free Render Static Site, not a Free Web Service. Connect Render to the personal GitHub repository, create/sync the root `render.yaml` Blueprint, and verify the final `onrender.com` URL. After the initial connection, pushes to `main` should deploy automatically. OAuth or Google sign-in must be completed by the user; never request or store credentials.
 
-## Sites publishing workflow
+Lead documentation and user-facing deployment handoffs with the Render URL. List the OpenAI Sites URL separately as the secondary deployment.
+
+## Secondary Sites publishing workflow
 
 This project contains `.openai/hosting.json`, so use the Sites building and Sites hosting workflows. Keep the development server alive until publishing is complete.
 
@@ -172,7 +174,7 @@ This project contains `.openai/hosting.json`, so use the Sites building and Site
 7. Save a new version for the existing `project_id`, using the exact commit SHA and archive.
 8. Deploy to the existing public access level; the user's explicit guest-access decision authorizes public deployment for Mineblok updates.
 9. Poll deployment status until it succeeds or fails.
-10. Open the live Mineblok URL, then stop the local server.
+10. Open the secondary Sites URL, then stop the local server.
 
 Do not write credentials into git configuration, shell history artifacts, project files, test fixtures, logs, or documentation. Do not make Mineblok private or add a sign-in gate unless the user explicitly requests that access change.
 
