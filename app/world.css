@@ -113,6 +113,7 @@ button:focus-visible {
 .scene-brand,
 .top-actions,
 .dpad,
+.sword-button,
 .tool-dock,
 .welcome-card {
   pointer-events: auto;
@@ -275,6 +276,53 @@ button:focus-visible {
 .dpad button:disabled {
   opacity: 0.58;
   cursor: wait;
+}
+
+.sword-button {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(23px, calc(env(safe-area-inset-bottom) + 12px));
+  z-index: 14;
+  display: grid;
+  min-width: 94px;
+  min-height: 86px;
+  place-items: center;
+  align-content: center;
+  gap: 1px;
+  padding: 9px 13px;
+  border: 3px solid rgba(255, 255, 255, 0.88);
+  border-radius: 24px;
+  color: #fff9df;
+  background: linear-gradient(145deg, #784360, #45263f);
+  box-shadow: 0 7px 0 #2b2031, 0 14px 28px rgba(36, 20, 35, 0.23);
+  cursor: pointer;
+  transition: transform 110ms ease, box-shadow 110ms ease, filter 110ms ease;
+}
+
+.sword-button > span {
+  font-size: 31px;
+  line-height: 1;
+}
+
+.sword-button strong {
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.sword-button small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.sword-button:active {
+  transform: translateY(4px) rotate(-4deg);
+  box-shadow: 0 3px 0 #2b2031, 0 8px 18px rgba(36, 20, 35, 0.2);
+}
+
+.sword-button.danger {
+  filter: drop-shadow(0 0 12px rgba(255, 225, 79, 0.8));
 }
 
 .tool-dock {
@@ -552,6 +600,24 @@ button:focus-visible {
     box-shadow: 0 4px 0 rgba(31, 77, 49, 0.19);
   }
 
+  .sword-button {
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(91px, calc(env(safe-area-inset-bottom) + 83px));
+    min-width: 76px;
+    min-height: 76px;
+    padding: 7px 10px;
+    border-radius: 21px;
+    box-shadow: 0 5px 0 #2b2031, 0 10px 22px rgba(36, 20, 35, 0.22);
+  }
+
+  .sword-button > span {
+    font-size: 27px;
+  }
+
+  .sword-button small {
+    display: none;
+  }
+
   .tool-dock {
     right: max(6px, env(safe-area-inset-right));
     bottom: max(7px, env(safe-area-inset-bottom));
@@ -620,6 +686,11 @@ button:focus-visible {
 
   .dpad {
     bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .sword-button {
+    right: max(142px, calc(env(safe-area-inset-right) + 132px));
+    bottom: max(13px, env(safe-area-inset-bottom));
   }
 
   .tool-dock {

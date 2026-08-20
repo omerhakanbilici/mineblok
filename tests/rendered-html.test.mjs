@@ -77,14 +77,17 @@ test("keeps camera, creatures, combat, and every control inside the game scene",
   assert.match(game, /function updateEnemy/);
   assert.match(game, /function drawDustBurst/);
   assert.match(game, /const removeAnimalNear = useCallback/);
-  assert.match(game, /const counterattackEnemy = useCallback/);
+  assert.match(game, /const strikeEnemy = useCallback/);
+  assert.match(game, /const swingSword = useCallback/);
   assert.match(game, /healthRef\.current - CONTACT_DAMAGE/);
   assert.match(
     game,
     /healthRef\.current - CONTACT_DAMAGE[\s\S]*counterattackTargetIdRef\.current = nearbyEnemy\.enemy\.id/,
   );
   assert.match(game, /counterattackAtRef\.current = now \+ AUTO_COUNTERATTACK_DELAY/);
-  assert.doesNotMatch(game, /event\.code === "Space"|className=\{`sword-button|>KILIÇ</);
+  assert.match(game, /event\.code === "Space"/);
+  assert.match(game, /className=\{`sword-button/);
+  assert.match(game, />KILIÇ<\/strong>/);
   assert.match(game, /function makeInitialStars/);
   assert.match(game, /starsRef\.current\.length >= 32/);
   assert.match(game, /setStarCount\(starCountRef\.current\)/);
@@ -96,7 +99,7 @@ test("keeps camera, creatures, combat, and every control inside the game scene",
   assert.match(css, /\.game-shell,[\s\S]*\.world-card[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;/);
   assert.match(css, /\.world-canvas[\s\S]*width:\s*100%;[\s\S]*height:\s*100%;/);
   assert.match(css, /\.tool-dock[\s\S]*position:\s*absolute;/);
-  assert.doesNotMatch(css, /\.sword-button/);
+  assert.match(css, /\.sword-button[\s\S]*position:\s*absolute;/);
   assert.match(css, /\.health-goal\.danger/);
   assert.match(css, /\.scene-topbar[\s\S]*justify-content:\s*space-between;/);
   assert.match(page, /import BlockGardenWorld from "\.\/BlockGardenWorld";/);

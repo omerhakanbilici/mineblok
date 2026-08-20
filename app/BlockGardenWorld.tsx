@@ -1358,7 +1358,7 @@ export default function BlockGardenWorld() {
     [addDust, playSound],
   );
 
-  const counterattackEnemy = useCallback((enemyId: string) => {
+  const strikeEnemy = useCallback((enemyId: string, automatic: boolean) => {
     const now = performance.now();
     const enemy = enemiesRef.current.find((candidate) => candidate.id === enemyId);
     if (!enemy) return false;
@@ -1367,9 +1367,42 @@ export default function BlockGardenWorld() {
     swordSwingStartedAtRef.current = now;
     addDust(position, "#a52e55");
     playSound("hit");
-    setMessage("Mino otomatik karşılık verdi! Kötü gölge toz oldu");
+    setMessage(
+      automatic
+        ? "Mino otomatik karşılık verdi! Kötü gölge toz oldu"
+        : "Harika manuel vuruş! Kötü gölge toz oldu",
+    );
     return true;
   }, [addDust, playSound]);
+
+  const swingSword = useCallback(() => {
+    const now = performance.now();
+    swordSwingStartedAtRef.current = now;
+    const player = playerRef.current;
+    let nearest: { enemy: EnemyState; distance: number } | null = null;
+    for (const enemy of enemiesRef.current) {
+      const position = movingEntityPoint(enemy, now);
+      const distance = Math.hypot(position.x - player.x, position.y - player.y);
+      if (distance <= ATTACK_RANGE && (!nearest || distance < nearest.distance)) {
+        nearest = { enemy, distance };
+      }
+    }
+
+    if (nearest) {
+      strikeEnemy(nearest.enemy.id, false);
+      counterattackTargetIdRef.current = null;
+      counterattackAtRef.current = null;
+      dangerStartedAtRef.current = null;
+      dangerNearbyRef.current = false;
+      setDangerNearby(false);
+      return;
+    }
+
+    if (!removeAnimalNear(player)) {
+      playSound("hit");
+      setMessage("Kılıç hazır — biraz daha yaklaş!");
+    }
+  }, [playSound, removeAnimalNear, strikeEnemy]);
 
   useEffect(() => {
     if (!started) return;
@@ -1389,7 +1422,7 @@ export default function BlockGardenWorld() {
 
       if (scheduledTargetId && counterattackAt !== null) {
         if (now < counterattackAt) return;
-        counterattackEnemy(scheduledTargetId);
+        strikeEnemy(scheduledTargetId, true);
         counterattackTargetIdRef.current = null;
         counterattackAtRef.current = null;
         dangerStartedAtRef.current = null;
@@ -1455,7 +1488,7 @@ export default function BlockGardenWorld() {
       setMessage(`Gölge önce vurdu! Canın ${nextHealth}; Mino birazdan karşılık verecek`);
     }, 140);
     return () => window.clearInterval(timer);
-  }, [counterattackEnemy, playSound, started]);
+  }, [playSound, started, strikeEnemy]);
 
   const handleArrival = useCallback(
     (point: Point, finalStep: boolean) => {
@@ -1511,8 +1544,14 @@ export default function BlockGardenWorld() {
   );
 
   useEffect(() => {
-    if (!started || isWalking) return;
+    if (!started) return;
     const handleKey = (event: KeyboardEvent) => {
+      if (event.code === "Space") {
+        event.preventDefault();
+        swingSword();
+        return;
+      }
+      if (isWalking) return;
       const current = playerRef.current;
       const moves: Record<string, Point> = {
         ArrowUp: { x: current.x - 1, y: current.y },
@@ -1531,7 +1570,7 @@ export default function BlockGardenWorld() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isWalking, moveTo, started]);
+  }, [isWalking, moveTo, started, swingSword]);
 
   const findTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1756,6 +1795,17 @@ export default function BlockGardenWorld() {
                 <button type="button" className="dpad-southeast" onClick={() => step("southeast")} aria-label="Sağ aşağı yürü" disabled={isWalking}>↘</button>
               </div>
             )}
+            <button
+              type="button"
+              className={`sword-button${dangerNearby ? " danger" : ""}`}
+              onClick={swingSword}
+              aria-label="Kılıçla manuel vur"
+              title="Kılıçla manuel vur (Boşluk tuşu)"
+            >
+              <span aria-hidden="true">⚔️</span>
+              <strong>KILIÇ</strong>
+              <small>BOŞLUK</small>
+            </button>
           </>
         )}
 
