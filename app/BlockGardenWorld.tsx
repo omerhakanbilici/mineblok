@@ -357,15 +357,19 @@ function drawVoxelPlayer(
   const unit = metrics.tileW / 105;
   const phase = walking ? Math.sin(time * 0.02) : 0;
   const bounce = walking ? Math.abs(Math.sin(time * 0.02)) * 2.2 * unit : 0;
-  const groundY = center.y - metrics.tileH * 0.08 + bounce;
+  const surfaceY = center.y + metrics.tileH * 0.03;
+  const groundY = surfaceY - bounce;
 
   context.fillStyle = "rgba(21, 47, 32, 0.26)";
   context.beginPath();
-  context.ellipse(center.x + 5 * unit, center.y + metrics.tileH * 0.22, 19 * unit, 8 * unit, 0, 0, Math.PI * 2);
+  context.ellipse(center.x + 4 * unit, surfaceY + 3 * unit, 18 * unit, 5 * unit, 0, 0, Math.PI * 2);
   context.fill();
 
-  const leftLegBottom = groundY - Math.max(0, phase) * 3 * unit;
-  const rightLegBottom = groundY - Math.max(0, -phase) * 3 * unit;
+  const shoeHeight = 7 * unit;
+  const leftShoeBottom = groundY - Math.max(0, phase) * 3 * unit;
+  const rightShoeBottom = groundY - Math.max(0, -phase) * 3 * unit;
+  const leftLegBottom = leftShoeBottom - shoeHeight;
+  const rightLegBottom = rightShoeBottom - shoeHeight;
   drawCuboid(context, center.x - 8 * unit + phase * 3 * unit, leftLegBottom, 12 * unit, 31 * unit, 4 * unit, {
     front: "#315f9f",
     side: "#21497e",
@@ -375,6 +379,16 @@ function drawVoxelPlayer(
     front: "#315f9f",
     side: "#21497e",
     top: "#4779b7",
+  });
+  drawCuboid(context, center.x - 8 * unit + phase * 3 * unit, leftShoeBottom, 14 * unit, shoeHeight, 6 * unit, {
+    front: "#443f3b",
+    side: "#272421",
+    top: "#655f59",
+  });
+  drawCuboid(context, center.x + 8 * unit - phase * 3 * unit, rightShoeBottom, 14 * unit, shoeHeight, 6 * unit, {
+    front: "#443f3b",
+    side: "#272421",
+    top: "#655f59",
   });
 
   const bodyBottom = groundY - 29 * unit;
@@ -1035,23 +1049,16 @@ export default function BlockGardenWorld() {
 
   return (
     <main className="game-shell">
-      <section className="world-card" aria-label="Blok Bahçesi oyun alanı">
+      <section className="world-card" aria-label="Mineblok oyun alanı">
         <canvas
           ref={canvasRef}
           className={`world-canvas mode-${mode}${isWalking ? " is-walking" : ""}`}
           onPointerDown={chooseTile}
           aria-busy={isWalking}
-          aria-label="Kameranın Mino'yu ortada tuttuğu büyük blok dünyası"
+          aria-label="Kameranın Mino'yu ortada tuttuğu büyük Mineblok dünyası"
         />
 
         <header className="scene-topbar">
-          <div className="scene-brand">
-            <span className="brand-cube" aria-hidden="true">▰</span>
-            <div>
-              <p className="eyebrow">100 × 100 BLOK DÜNYASI</p>
-              <h1>Blok Bahçesi</h1>
-            </div>
-          </div>
           <div className="top-actions">
             <div className="star-goal" aria-label={`${collectedStars.length} yıldız bulundu, hedef 3`}>
               <span aria-hidden="true">⭐</span>
@@ -1069,12 +1076,16 @@ export default function BlockGardenWorld() {
             <button type="button" className="mini-button" onClick={resetGame} aria-label="Dünyayı yenile" title="Dünyayı yenile">↻</button>
             <button type="button" className="mini-button fullscreen-button" onClick={toggleFullscreen} aria-label="Tam ekran" title="Tam ekran">⛶</button>
           </div>
+          <div className="scene-brand">
+            <span className="brand-cube" aria-hidden="true">▰</span>
+            <h1>Mineblok</h1>
+          </div>
         </header>
 
         {!started && (
           <div className="welcome-card">
             <span className="welcome-sun" aria-hidden="true">🧭</span>
-            <p>Uçsuz bucaksız blok dünyası seni bekliyor!</p>
+            <p>Uçsuz bucaksız Mineblok dünyası seni bekliyor!</p>
             <button type="button" className="play-button" onClick={startGame}>
               <span aria-hidden="true">▶</span> OYNA
             </button>
@@ -1086,7 +1097,7 @@ export default function BlockGardenWorld() {
 
         {started && !celebrating && (
           <>
-            <div className="hint-bubble" role="status" aria-live="polite">{message}</div>
+            <p className="sr-only" role="status" aria-live="polite">{message}</p>
             {mode === "walk" && (
               <div className="dpad" aria-label="Haritayla aynı yöndeki çapraz yürüme okları">
                 <button type="button" className="dpad-northwest" onClick={() => step("northwest")} aria-label="Sol yukarı yürü" disabled={isWalking}>↖</button>

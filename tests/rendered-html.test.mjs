@@ -29,11 +29,12 @@ test("server-renders the full-screen block world HUD", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Blok Bahçesi \| Minik Kaşifler İçin Oyun<\/title>/i);
+  assert.match(html, /<title>Mineblok \| Minik Kaşifler İçin Oyun<\/title>/i);
   assert.match(html, /class="game-shell"/);
   assert.match(html, /class="world-canvas mode-walk"/);
-  assert.match(html, /100 × 100 BLOK DÜNYASI/);
-  assert.match(html, /Uçsuz bucaksız blok dünyası seni bekliyor!/);
+  assert.match(html, /<h1>Mineblok<\/h1>/);
+  assert.match(html, /Uçsuz bucaksız Mineblok dünyası seni bekliyor!/);
+  assert.doesNotMatch(html, /class="hint-bubble"/);
   assert.match(html, /class="world-card"[\s\S]*class="tool-dock [^"]*"[\s\S]*<\/section>/);
   assert.match(html, />GEZ<\/strong>/);
   assert.match(html, />YAP<\/strong>/);
@@ -51,6 +52,8 @@ test("keeps camera, wandering animals, and every control inside the game scene",
   assert.match(game, /const WORLD_SIZE = 100;/);
   assert.match(game, /cameraRef\.current = playerWorld;/);
   assert.match(game, /drawVoxelPlayer/);
+  assert.match(game, /const surfaceY = center\.y \+ metrics\.tileH \* 0\.03;/);
+  assert.match(game, /const shoeHeight = 7 \* unit;/);
   assert.match(game, /function updateAnimal/);
   assert.match(game, /duration: 1150 \+ Math\.random\(\) \* 450/);
   assert.match(game, /<section className="world-card"[\s\S]*<header className="scene-topbar"/);
