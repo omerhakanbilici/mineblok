@@ -133,13 +133,16 @@ Walking may change animation or cursor styling, but it must not visually imply t
 Tablet stability takes priority over maximum backing-store resolution. Preserve these rendering constraints:
 
 - Detect low-power rendering through capabilities such as a coarse pointer, touch input, limited logical CPU count, or limited reported device memory; do not maintain a device or user-agent list.
-- Cap low-power devices at 30 FPS, a `1.25` Canvas scale, and a 1.6-million-pixel backing-store budget. Keep the full profile capped at `2x` and six million pixels.
-- Cache terrain and flowers in the offscreen terrain layer. Rebuild it only after a meaningful camera shift, a viewport/profile change, or a new `world` reference.
-- Keep flowers static inside that cache. Stars, creatures, enemies, the player, and short effects remain dynamic and visibility-culled.
+- Keep terrain/flowers on `world-terrain-canvas` and moving entities/effects on the transparent `world-canvas`. Move the terrain layer with `translate3d`; never copy the full terrain cache into the dynamic Canvas on every frame.
+- Cap ordinary touch tablets at 20 FPS, `0.8x`, and a 650,000-pixel dynamic Canvas budget. CPU/memory-constrained or adaptively degraded devices use 18 FPS, `0.6x`, and 420,000 pixels. Low-power scale may fall to `0.45x`; do not restore a `1x` minimum there. Keep the full profile capped at `2x` and six million pixels.
+- Cache block faces in a small sprite atlas. Rebuild terrain only after a roughly two-cell camera shift, a viewport/profile change, or a new `world` reference.
+- Keep flowers static inside the terrain layer and disable decorative star motion on low-power profiles. Creatures, enemies, the player, and short gameplay effects remain dynamic and visibility-culled.
+- Preserve the adaptive draw-cost downgrade from the tablet profile to the constrained profile; it covers touch devices whose CPU or memory capability reporting is overly optimistic.
+- Disable backdrop blur, large composited overlay shadows, and looping danger animation for coarse-pointer/no-hover devices. Keep the controls visually clear with opaque backgrounds instead.
 - Read Canvas dimensions from the ResizeObserver-maintained ref instead of forcing a layout read in every animation frame.
-- Skip drawing while the document is hidden and keep star data in `starsRef`; spawning or collecting a star must not require a React render solely to refresh Canvas data.
+- Skip drawing while the document is hidden, avoid a continuous pre-game loop on low-power devices, and keep star data in `starsRef`; spawning or collecting a star must not require a React render solely to refresh Canvas data.
 
-Do not return to an unconditional `devicePixelRatio` scale or redraw every terrain polygon on every animation frame. When performance-related code changes, validate both production builds and keep the source assertions for the render budget and terrain cache.
+Do not return to an unconditional `devicePixelRatio` scale, redraw every terrain polygon on every animation frame, or merge the two Canvas layers without device measurements. When performance-related code changes, validate both production builds and keep the source assertions for the render budgets, sprite atlas, layer separation, and terrain cache.
 
 ## Validation workflow
 

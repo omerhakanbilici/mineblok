@@ -59,13 +59,15 @@ button:focus-visible {
 }
 
 .world-card {
-  background: linear-gradient(#78c8ea, #d4edca);
+  background:
+    radial-gradient(circle at 82% 16%, rgba(255, 239, 149, 0.38), transparent 28%),
+    linear-gradient(#78c8ea 0%, #a9e2f0 56%, #d4edca 100%);
 }
 
 .world-card::after {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 3;
   pointer-events: none;
   content: "";
   box-shadow:
@@ -73,10 +75,20 @@ button:focus-visible {
     inset 0 -100px 120px rgba(17, 75, 49, 0.06);
 }
 
+.world-terrain-canvas {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  max-width: none;
+  pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
 .world-canvas {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 2;
   display: block;
   width: 100%;
   height: 100%;
@@ -721,6 +733,48 @@ button:focus-visible {
     min-width: 104px;
     justify-content: flex-start;
     gap: 7px;
+  }
+}
+
+@media (pointer: coarse), (hover: none) {
+  .scene-brand,
+  .health-goal,
+  .star-goal,
+  .mini-button,
+  .dpad,
+  .mode-buttons,
+  .block-palette,
+  .welcome-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .scene-brand,
+  .health-goal,
+  .star-goal,
+  .mini-button {
+    background: rgba(255, 252, 236, 0.97);
+    box-shadow: 0 5px 0 rgba(31, 65, 45, 0.18);
+  }
+
+  .dpad,
+  .mode-buttons,
+  .block-palette {
+    background: rgba(22, 61, 48, 0.78);
+    box-shadow: 0 6px 16px rgba(24, 64, 51, 0.14);
+  }
+
+  .world-card::after {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  }
+
+  .health-goal.danger {
+    animation: none;
+  }
+
+  .sword-button.danger {
+    outline: 4px solid rgba(255, 225, 79, 0.72);
+    filter: none;
   }
 }
 

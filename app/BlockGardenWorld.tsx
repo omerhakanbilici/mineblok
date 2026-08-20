@@ -75,9 +75,12 @@ type Metrics = {
 };
 
 type RenderProfile = {
+  tier: "full" | "tablet" | "constrained";
   lowPower: boolean;
   reducedMotion: boolean;
+  animateDecorations: boolean;
   maxScale: number;
+  minScale: number;
   pixelBudget: number;
   frameInterval: number;
 };
@@ -92,12 +95,54 @@ type TerrainCache = {
   world: World;
 };
 
-const LOW_POWER_FRAME_INTERVAL = 1000 / 30;
-const LOW_POWER_CANVAS_SCALE = 1.25;
-const LOW_POWER_CANVAS_PIXEL_BUDGET = 1_600_000;
+type BlockSprite = {
+  canvas: HTMLCanvasElement;
+  cssWidth: number;
+  cssHeight: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+type BlockSpriteAtlas = {
+  tileW: number;
+  tileH: number;
+  blockH: number;
+  scale: number;
+  sprites: Record<BlockKind, BlockSprite[]>;
+};
+
+type RenderStats = {
+  samples: number;
+  totalDrawTime: number;
+  slowDraws: number;
+};
+
+const TABLET_FRAME_INTERVAL = 1000 / 20;
+const TABLET_CANVAS_SCALE = 0.8;
+const TABLET_CANVAS_PIXEL_BUDGET = 650_000;
+const CONSTRAINED_FRAME_INTERVAL = 1000 / 18;
+const CONSTRAINED_CANVAS_SCALE = 0.6;
+const CONSTRAINED_CANVAS_PIXEL_BUDGET = 420_000;
+const LOW_POWER_MIN_CANVAS_SCALE = 0.45;
 const FULL_CANVAS_SCALE = 2;
 const FULL_CANVAS_PIXEL_BUDGET = 6_000_000;
-const TERRAIN_CACHE_CAMERA_THRESHOLD = 0.82;
+const TERRAIN_CACHE_CAMERA_THRESHOLD = 1.65;
+const BLOCK_SPRITE_VARIANTS = 4;
+const ADAPTIVE_SAMPLE_COUNT = 20;
+const ADAPTIVE_SLOW_DRAW_MS = 14;
+
+function makeConstrainedProfile(reducedMotion: boolean): RenderProfile {
+  return {
+    tier: "constrained",
+    lowPower: true,
+    reducedMotion,
+    animateDecorations: false,
+    maxScale: CONSTRAINED_CANVAS_SCALE,
+    minScale: LOW_POWER_MIN_CANVAS_SCALE,
+    pixelBudget: CONSTRAINED_CANVAS_PIXEL_BUDGET,
+    frameInterval: CONSTRAINED_FRAME_INTERVAL,
+  };
+}
 
 function detectRenderProfile(): RenderProfile {
   const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
@@ -107,19 +152,37 @@ function detectRenderProfile(): RenderProfile {
   const limitedMemory = deviceMemory !== undefined && deviceMemory <= 4;
   const lowPower = coarsePointer || navigator.maxTouchPoints > 0 || limitedCpu || limitedMemory;
 
+  if (limitedCpu || limitedMemory) return makeConstrainedProfile(reducedMotion);
+
+  if (lowPower) {
+    return {
+      tier: "tablet",
+      lowPower: true,
+      reducedMotion,
+      animateDecorations: false,
+      maxScale: TABLET_CANVAS_SCALE,
+      minScale: LOW_POWER_MIN_CANVAS_SCALE,
+      pixelBudget: TABLET_CANVAS_PIXEL_BUDGET,
+      frameInterval: TABLET_FRAME_INTERVAL,
+    };
+  }
+
   return {
-    lowPower,
+    tier: "full",
+    lowPower: false,
     reducedMotion,
-    maxScale: lowPower ? LOW_POWER_CANVAS_SCALE : FULL_CANVAS_SCALE,
-    pixelBudget: lowPower ? LOW_POWER_CANVAS_PIXEL_BUDGET : FULL_CANVAS_PIXEL_BUDGET,
-    frameInterval: lowPower ? LOW_POWER_FRAME_INTERVAL : 0,
+    animateDecorations: !reducedMotion,
+    maxScale: FULL_CANVAS_SCALE,
+    minScale: 1,
+    pixelBudget: FULL_CANVAS_PIXEL_BUDGET,
+    frameInterval: 0,
   };
 }
 
 function getCanvasScale(width: number, height: number, profile: RenderProfile) {
   const deviceScale = window.devicePixelRatio || 1;
   const budgetScale = Math.sqrt(profile.pixelBudget / Math.max(1, width * height));
-  return Math.max(1, Math.min(deviceScale, profile.maxScale, budgetScale));
+  return Math.max(profile.minScale, Math.min(deviceScale, profile.maxScale, budgetScale));
 }
 
 const ANIMAL_SPAWNS: Array<{
@@ -335,15 +398,13 @@ function tileCenter(x: number, y: number, columnHeight: number, metrics: Metrics
   };
 }
 
-function drawBlock(
+function drawBlockShape(
   context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  z: number,
+  center: ScreenPoint,
   kind: BlockKind,
   metrics: Metrics,
+  detail: number,
 ) {
-  const center = tileCenter(x, y, z + 1, metrics);
   const halfW = metrics.tileW / 2;
   const halfH = metrics.tileH / 2;
   const colors = BLOCK_COLORS[kind];
@@ -387,7 +448,6 @@ function drawBlock(
   context.stroke();
 
   if (kind === "grass" || kind === "flower") {
-    const detail = pseudoRandom(x * 3 + z, y * 5 + z);
     context.strokeStyle = "rgba(35, 115, 49, 0.42)";
     context.lineWidth = Math.max(1.5, metrics.tileW * 0.014);
     context.beginPath();
@@ -397,6 +457,110 @@ function drawBlock(
     context.lineTo(center.x + halfW * 0.35, center.y - halfH * 0.14);
     context.stroke();
   }
+}
+
+function drawBlock(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  z: number,
+  kind: BlockKind,
+  metrics: Metrics,
+) {
+  drawBlockShape(
+    context,
+    tileCenter(x, y, z + 1, metrics),
+    kind,
+    metrics,
+    pseudoRandom(x * 3 + z, y * 5 + z),
+  );
+}
+
+function createBlockSprite(
+  kind: BlockKind,
+  metrics: Metrics,
+  scale: number,
+  detail: number,
+): BlockSprite {
+  const inset = Math.max(3, metrics.tileW * 0.025);
+  const cssWidth = metrics.tileW + inset * 2;
+  const cssHeight = metrics.tileH + metrics.blockH + inset * 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(cssWidth * scale));
+  canvas.height = Math.max(1, Math.ceil(cssHeight * scale));
+  const context = canvas.getContext("2d");
+  if (context) {
+    context.setTransform(scale, 0, 0, scale, 0, 0);
+    drawBlockShape(
+      context,
+      { x: cssWidth / 2, y: inset + metrics.tileH / 2 },
+      kind,
+      metrics,
+      detail,
+    );
+  }
+  return {
+    canvas,
+    cssWidth,
+    cssHeight,
+    offsetX: cssWidth / 2,
+    offsetY: inset + metrics.tileH / 2,
+  };
+}
+
+function createBlockSpriteAtlas(metrics: Metrics, scale: number): BlockSpriteAtlas {
+  const sprites: Record<BlockKind, BlockSprite[]> = {
+    dirt: [],
+    grass: [],
+    sand: [],
+    pink: [],
+    blue: [],
+    flower: [],
+  };
+  const kinds = Object.keys(sprites) as BlockKind[];
+  for (const kind of kinds) {
+    for (let variant = 0; variant < BLOCK_SPRITE_VARIANTS; variant += 1) {
+      sprites[kind].push(
+        createBlockSprite(kind, metrics, scale, (variant + 0.5) / BLOCK_SPRITE_VARIANTS),
+      );
+    }
+  }
+  return {
+    tileW: metrics.tileW,
+    tileH: metrics.tileH,
+    blockH: metrics.blockH,
+    scale,
+    sprites,
+  };
+}
+
+function drawBlockFromAtlas(
+  context: CanvasRenderingContext2D,
+  atlas: BlockSpriteAtlas,
+  x: number,
+  y: number,
+  z: number,
+  kind: BlockKind,
+  metrics: Metrics,
+) {
+  const center = tileCenter(x, y, z + 1, metrics);
+  const detail = pseudoRandom(x * 3 + z, y * 5 + z);
+  const variant = Math.min(
+    BLOCK_SPRITE_VARIANTS - 1,
+    Math.floor(detail * BLOCK_SPRITE_VARIANTS),
+  );
+  const sprite = atlas.sprites[kind][variant];
+  context.drawImage(
+    sprite.canvas,
+    0,
+    0,
+    sprite.canvas.width,
+    sprite.canvas.height,
+    center.x - sprite.offsetX,
+    center.y - sprite.offsetY,
+    sprite.cssWidth,
+    sprite.cssHeight,
+  );
 }
 
 function drawFlower(
@@ -479,6 +643,7 @@ function drawTerrainLayer(
   metrics: Metrics,
   surfaceWidth: number,
   surfaceHeight: number,
+  blockAtlas: BlockSpriteAtlas | null,
 ) {
   const horizontalRange = Math.ceil(surfaceWidth / metrics.tileW) + 7;
   const verticalRange = Math.ceil(surfaceHeight / Math.max(1, metrics.tileH)) / 2 + 7;
@@ -503,7 +668,10 @@ function drawTerrainLayer(
       ) {
         continue;
       }
-      column.forEach((kind, z) => drawBlock(context, x, y, z, kind, metrics));
+      column.forEach((kind, z) => {
+        if (blockAtlas) drawBlockFromAtlas(context, blockAtlas, x, y, z, kind, metrics);
+        else drawBlock(context, x, y, z, kind, metrics);
+      });
       if (column.at(-1) === "flower") {
         // Flowers keep a varied lean but stay in the cached terrain layer instead of animating every frame.
         drawFlower(context, x, y, column.length, metrics, 0);
@@ -1091,15 +1259,21 @@ function updateEnemy(enemy: EnemyState, world: World, time: number, active: bool
 
 export default function BlockGardenWorld() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const terrainCanvasRef = useRef<HTMLCanvasElement>(null);
   const canvasSizeRef = useRef({ width: 0, height: 0 });
   const renderProfileRef = useRef<RenderProfile>({
+    tier: "full",
     lowPower: false,
     reducedMotion: false,
+    animateDecorations: true,
     maxScale: FULL_CANVAS_SCALE,
+    minScale: 1,
     pixelBudget: FULL_CANVAS_PIXEL_BUDGET,
     frameInterval: 0,
   });
   const terrainCacheRef = useRef<TerrainCache | null>(null);
+  const blockSpriteAtlasRef = useRef<BlockSpriteAtlas | null>(null);
+  const renderStatsRef = useRef<RenderStats>({ samples: 0, totalDrawTime: 0, slowDraws: 0 });
   const audioRef = useRef<AudioContext | null>(null);
   const playerRef = useRef<Point>({ ...START_POINT });
   const cameraRef = useRef<WorldPosition>({ x: START_POINT.x, y: START_POINT.y, z: 0 });
@@ -1180,6 +1354,8 @@ export default function BlockGardenWorld() {
     const updateProfile = () => {
       renderProfileRef.current = detectRenderProfile();
       terrainCacheRef.current = null;
+      blockSpriteAtlasRef.current = null;
+      renderStatsRef.current = { samples: 0, totalDrawTime: 0, slowDraws: 0 };
     };
     const updateSize = () => {
       const bounds = canvas.getBoundingClientRect();
@@ -1189,6 +1365,7 @@ export default function BlockGardenWorld() {
       if (previous.width === width && previous.height === height) return;
       canvasSizeRef.current = { width, height };
       terrainCacheRef.current = null;
+      blockSpriteAtlasRef.current = null;
     };
     const subscribeToQuery = (query: MediaQueryList) => {
       if (typeof query.addEventListener === "function") query.addEventListener("change", updateProfile);
@@ -1220,6 +1397,7 @@ export default function BlockGardenWorld() {
     (rawTime: number) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
+      const terrainCanvas = terrainCanvasRef.current;
       const { width, height } = canvasSizeRef.current;
       if (width === 0 || height === 0) return;
       const profile = renderProfileRef.current;
@@ -1230,11 +1408,14 @@ export default function BlockGardenWorld() {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
       }
-      const context = canvas.getContext("2d", { alpha: false });
+      const context = canvas.getContext("2d");
       if (!context) return;
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvas.width, canvas.height);
       context.setTransform(scale, 0, 0, scale, 0, 0);
       context.imageSmoothingEnabled = true;
       const time = profile.reducedMotion ? 0 : rawTime;
+      const decorativeTime = profile.animateDecorations ? time : 0;
       const swingAge = rawTime - swordSwingStartedAtRef.current;
       const swordSwingProgress = swingAge >= 0 && swingAge < 380 ? swingAge / 380 : null;
 
@@ -1303,19 +1484,6 @@ export default function BlockGardenWorld() {
 
       cameraRef.current = playerWorld;
       const metrics = getMetrics(width, height, playerWorld);
-      const sky = context.createLinearGradient(0, 0, 0, height);
-      sky.addColorStop(0, "#78c8ea");
-      sky.addColorStop(0.56, "#a9e2f0");
-      sky.addColorStop(1, "#d4edca");
-      context.fillStyle = sky;
-      context.fillRect(0, 0, width, height);
-
-      const glow = context.createRadialGradient(width * 0.82, height * 0.16, 0, width * 0.82, height * 0.16, width * 0.28);
-      glow.addColorStop(0, "rgba(255, 239, 149, 0.38)");
-      glow.addColorStop(1, "rgba(255, 239, 149, 0)");
-      context.fillStyle = glow;
-      context.fillRect(0, 0, width, height);
-
       const padding = Math.ceil(metrics.tileW * 1.4 + metrics.blockH * 1.2);
       const cacheWidth = width + padding * 2;
       const cacheHeight = height + padding * 2;
@@ -1329,26 +1497,22 @@ export default function BlockGardenWorld() {
         : true;
       const cacheNeedsRefresh =
         !previousCache ||
+        previousCache.canvas !== terrainCanvas ||
         previousCache.cssWidth !== cacheWidth ||
         previousCache.cssHeight !== cacheHeight ||
         Math.abs(previousCache.scale - scale) > 0.01 ||
         previousCache.world !== world ||
         cameraMoved;
 
-      if (cacheNeedsRefresh) {
+      if (cacheNeedsRefresh && terrainCanvas) {
         const targetCacheWidth = Math.round(cacheWidth * scale);
         const targetCacheHeight = Math.round(cacheHeight * scale);
-        let terrainCanvas = previousCache?.canvas;
-        if (
-          !terrainCanvas ||
-          terrainCanvas.width !== targetCacheWidth ||
-          terrainCanvas.height !== targetCacheHeight
-        ) {
-          const resizedCanvas = document.createElement("canvas");
-          resizedCanvas.width = targetCacheWidth;
-          resizedCanvas.height = targetCacheHeight;
-          terrainCanvas = resizedCanvas;
-        }
+        if (terrainCanvas.width !== targetCacheWidth) terrainCanvas.width = targetCacheWidth;
+        if (terrainCanvas.height !== targetCacheHeight) terrainCanvas.height = targetCacheHeight;
+        terrainCanvas.style.width = `${cacheWidth}px`;
+        terrainCanvas.style.height = `${cacheHeight}px`;
+        terrainCanvas.style.left = `${-padding}px`;
+        terrainCanvas.style.top = `${-padding}px`;
         const terrainContext = terrainCanvas.getContext("2d");
         if (terrainContext) {
           terrainContext.setTransform(1, 0, 0, 1, 0, 0);
@@ -1363,7 +1527,25 @@ export default function BlockGardenWorld() {
             centerY: metrics.centerY + padding,
             camera: cachedCamera,
           };
-          drawTerrainLayer(terrainContext, world, cachedMetrics, cacheWidth, cacheHeight);
+          const previousAtlas = blockSpriteAtlasRef.current;
+          const atlasMatches =
+            previousAtlas &&
+            Math.abs(previousAtlas.tileW - metrics.tileW) < 0.1 &&
+            Math.abs(previousAtlas.tileH - metrics.tileH) < 0.1 &&
+            Math.abs(previousAtlas.blockH - metrics.blockH) < 0.1 &&
+            Math.abs(previousAtlas.scale - scale) < 0.01;
+          const blockAtlas = atlasMatches
+            ? previousAtlas
+            : createBlockSpriteAtlas(metrics, scale);
+          blockSpriteAtlasRef.current = blockAtlas;
+          drawTerrainLayer(
+            terrainContext,
+            world,
+            cachedMetrics,
+            cacheWidth,
+            cacheHeight,
+            blockAtlas,
+          );
           terrainCacheRef.current = {
             canvas: terrainCanvas,
             cssWidth: cacheWidth,
@@ -1384,21 +1566,9 @@ export default function BlockGardenWorld() {
         const offsetX = (-cameraDeltaX + cameraDeltaY) * (metrics.tileW / 2);
         const offsetY =
           (-cameraDeltaX - cameraDeltaY) * (metrics.tileH / 2) + cameraDeltaZ * metrics.blockH;
-        const sourceX = (terrainCache.padding - offsetX) * terrainCache.scale;
-        const sourceY = (terrainCache.padding - offsetY) * terrainCache.scale;
-        context.drawImage(
-          terrainCache.canvas,
-          sourceX,
-          sourceY,
-          width * terrainCache.scale,
-          height * terrainCache.scale,
-          0,
-          0,
-          width,
-          height,
-        );
+        terrainCache.canvas.style.transform = `translate3d(${offsetX}px, ${offsetY}px, 0)`;
       } else {
-        drawTerrainLayer(context, world, metrics, width, height);
+        drawTerrainLayer(context, world, metrics, width, height, null);
       }
 
       for (const star of starsRef.current) {
@@ -1406,7 +1576,7 @@ export default function BlockGardenWorld() {
         if (column.length === 0) continue;
         const center = tileCenter(star.x, star.y, column.length, metrics);
         if (center.x > -80 && center.x < width + 80 && center.y > -80 && center.y < height + 80) {
-          drawStar(context, star.x, star.y, column.length, metrics, time);
+          drawStar(context, star.x, star.y, column.length, metrics, decorativeTime);
         }
       }
 
@@ -1439,20 +1609,41 @@ export default function BlockGardenWorld() {
     let frame = 0;
     let lastDrawAt = 0;
     const render = (time: number) => {
-      const frameInterval = renderProfileRef.current.frameInterval;
+      const profile = renderProfileRef.current;
+      const frameInterval = profile.frameInterval;
       const elapsed = time - lastDrawAt;
+      const idleTabletNeedsDraw =
+        !profile.lowPower || started || lastDrawAt === 0 || terrainCacheRef.current === null;
       if (
         document.visibilityState !== "hidden" &&
+        idleTabletNeedsDraw &&
         (lastDrawAt === 0 || frameInterval === 0 || elapsed >= frameInterval)
       ) {
+        const drawStartedAt = performance.now();
         draw(time);
+        const drawDuration = performance.now() - drawStartedAt;
+        if (profile.tier === "tablet") {
+          const stats = renderStatsRef.current;
+          stats.samples += 1;
+          stats.totalDrawTime += drawDuration;
+          if (drawDuration >= ADAPTIVE_SLOW_DRAW_MS) stats.slowDraws += 1;
+          if (stats.samples >= ADAPTIVE_SAMPLE_COUNT) {
+            const averageDrawTime = stats.totalDrawTime / stats.samples;
+            if (averageDrawTime >= ADAPTIVE_SLOW_DRAW_MS || stats.slowDraws >= 6) {
+              renderProfileRef.current = makeConstrainedProfile(profile.reducedMotion);
+              terrainCacheRef.current = null;
+              blockSpriteAtlasRef.current = null;
+            }
+            renderStatsRef.current = { samples: 0, totalDrawTime: 0, slowDraws: 0 };
+          }
+        }
         lastDrawAt = frameInterval > 0 ? time - (elapsed % frameInterval) : time;
       }
       frame = window.requestAnimationFrame(render);
     };
     frame = window.requestAnimationFrame(render);
     return () => window.cancelAnimationFrame(frame);
-  }, [draw]);
+  }, [draw, started]);
 
   useEffect(() => {
     if (!started) return;
@@ -1953,6 +2144,11 @@ export default function BlockGardenWorld() {
   return (
     <main className="game-shell">
       <section className="world-card" aria-label="Mineblok oyun alanı">
+        <canvas
+          ref={terrainCanvasRef}
+          className="world-terrain-canvas"
+          aria-hidden="true"
+        />
         <canvas
           ref={canvasRef}
           className={`world-canvas mode-${mode}${isWalking ? " is-walking" : ""}`}

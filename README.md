@@ -89,13 +89,16 @@ Oyunun veritabanı veya kullanıcı hesabına bağlı kalıcı kaydı yoktur. D�
 
 ## Tablet performansı
 
-Çiçek ve yıldız hareketleri tek başına ana darboğaz değildir. En yüksek maliyet, tam ekran Canvas'ın cihaz piksel oranıyla büyütülmesi ve görünür arazideki yüzlerce blok yüzünün her animasyon karesinde yeniden çizilmesiydi.
+Çiçek ve yıldız hareketleri tek başına ana darboğaz değildir. Eski çizim yolunda önbellekteki arazi yine her animasyon karesinde tam ekran Canvas'a kopyalanıyor, Canvas çözünürlüğü `1x` altına düşemiyor ve HUD üzerindeki bulanıklıklar hareketli sahneyi tekrar işliyordu. Bu maliyet özellikle yüksek çözünürlüklü Android ve Fire OS tabletlerde belirgindir.
 
-- Arazi ve çiçekler ayrı bir Canvas katmanında önbelleğe alınır; kamera yeterince hareket edene veya dünya değişene kadar pahalı blok çizimi tekrarlanmaz.
-- Çiçekler önbellekte farklı yönlere eğilmiş halde sabittir. Yıldızlar, karakter, hayvanlar, düşmanlar ve efektler hareket etmeye devam eder.
-- Dokunmatik veya düşük donanımlı cihazlarda oyun 30 FPS hedefler, Canvas ölçeğini en fazla `1.25` yapar ve yaklaşık 1,6 milyon piksel bütçesini aşmaz.
-- Güçlü masaüstü cihazlar 60 FPS'e ve en fazla `2x` Canvas ölçeğine devam eder.
-- Sekme görünür değilken çizim yapılmaz.
+- Arazi/çiçekler ile karakter/canlı/efekt çizimleri iki ayrı Canvas katmanıdır. Arazi katmanı her karede kopyalanmaz; kamera hareketinde GPU destekli CSS dönüşümüyle kaydırılır.
+- Arazi ancak kamera yaklaşık iki blok ilerlediğinde, ekran profili değiştiğinde veya dünya düzenlendiğinde yeniden hazırlanır.
+- Blok yüzleri her arazi yenilemesinde çokgenlerden tekrar üretilmek yerine küçük bir sprite atlasından çizilir.
+- Dokunmatik tablet profili 20 FPS, en fazla `0.8x` ölçek ve yaklaşık 650 bin hareketli Canvas pikseli hedefler. Düşük CPU/bellek bildiren veya çizimi yavaş kalan cihazlar otomatik olarak 18 FPS, `0.6x` ve 420 bin piksel profiline iner.
+- Düşük güçlü profiller gerektiğinde `0.45x` ölçeğe kadar inebilir; bu, yüksek çözünürlüklü tabletlerde kesintisiz hareketi keskinlikten öncelikli tutar.
+- Çiçekler ve tabletlerde yıldız süs animasyonu sabittir. Karakter yürüyüşü, hayvanlar, düşmanlar ve oyun efektleri hareket etmeye devam eder.
+- Dokunmatik cihazlarda hareketli Canvas üzerinde pahalı `backdrop-filter` bulanıklıkları kapatılır; kontroller daha opak fakat aynı yerleşimde kalır.
+- Sekme görünür değilken çizim yapılmaz; oyun başlamadan önce düşük güçlü cihazlarda yalnızca gerekli ilk kare çizilir.
 
 Bu sınırları kaldırmayın veya mobil cihazlarda sınırsız `devicePixelRatio` kullanmayın. Görsel kaliteyi artırmak gerekirse önce tabletlerde ölçüm yapın; kararlı hareket, ek çözünürlükten daha önemlidir.
 
