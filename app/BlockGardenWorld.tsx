@@ -7,6 +7,8 @@ const MAX_HEIGHT = 6;
 const MAX_HEALTH = 100;
 const CONTACT_DAMAGE = 2;
 const ATTACK_RANGE = 1.45;
+const ENEMY_FIRST_HIT_DELAY = 1200;
+const AUTO_COUNTERATTACK_DELAY = 520;
 const START_POINT = { x: 50, y: 50 };
 
 type Mode = "walk" | "build" | "remove";
@@ -1023,7 +1025,8 @@ export default function BlockGardenWorld() {
   const dustIdRef = useRef(0);
   const swordSwingStartedAtRef = useRef(-1000);
   const dangerStartedAtRef = useRef<number | null>(null);
-  const lastDamageAtRef = useRef(0);
+  const counterattackAtRef = useRef<number | null>(null);
+  const counterattackTargetIdRef = useRef<string | null>(null);
   const dangerNearbyRef = useRef(false);
   const healthRef = useRef(MAX_HEALTH);
   const [starCount, setStarCount] = useState(0);
@@ -1355,38 +1358,18 @@ export default function BlockGardenWorld() {
     [addDust, playSound],
   );
 
-  const swingSword = useCallback(() => {
+  const counterattackEnemy = useCallback((enemyId: string) => {
     const now = performance.now();
+    const enemy = enemiesRef.current.find((candidate) => candidate.id === enemyId);
+    if (!enemy) return false;
+    const position = movingEntityPoint(enemy, now);
+    enemiesRef.current = enemiesRef.current.filter((candidate) => candidate.id !== enemyId);
     swordSwingStartedAtRef.current = now;
-    const player = playerRef.current;
-    let nearest: { enemy: EnemyState; position: Point; distance: number } | null = null;
-    for (const enemy of enemiesRef.current) {
-      const position = movingEntityPoint(enemy, now);
-      const distance = Math.hypot(position.x - player.x, position.y - player.y);
-      if (distance <= ATTACK_RANGE && (!nearest || distance < nearest.distance)) {
-        nearest = { enemy, position, distance };
-      }
-    }
-
-    if (nearest) {
-      enemiesRef.current = enemiesRef.current.filter(
-        (enemy) => enemy.id !== nearest?.enemy.id,
-      );
-      addDust(nearest.position, "#a52e55");
-      dangerStartedAtRef.current = null;
-      lastDamageAtRef.current = now;
-      dangerNearbyRef.current = false;
-      setDangerNearby(false);
-      playSound("hit");
-      setMessage("Harika vuruş! Kötü gölge toz olup kayboldu");
-      return;
-    }
-
-    if (!removeAnimalNear(player)) {
-      playSound("hit");
-      setMessage("Kılıç hazır — biraz daha yaklaş!");
-    }
-  }, [addDust, playSound, removeAnimalNear]);
+    addDust(position, "#a52e55");
+    playSound("hit");
+    setMessage("Mino otomatik karşılık verdi! Kötü gölge toz oldu");
+    return true;
+  }, [addDust, playSound]);
 
   useEffect(() => {
     if (!started) return;
@@ -1401,14 +1384,33 @@ export default function BlockGardenWorld() {
     const timer = window.setInterval(() => {
       const now = performance.now();
       const player = playerRef.current;
-      const enemyNearby = enemiesRef.current.some((enemy) => {
-        const position = movingEntityPoint(enemy, now);
-        return Math.hypot(position.x - player.x, position.y - player.y) <= ATTACK_RANGE;
-      });
+      const scheduledTargetId = counterattackTargetIdRef.current;
+      const counterattackAt = counterattackAtRef.current;
 
-      if (!enemyNearby) {
+      if (scheduledTargetId && counterattackAt !== null) {
+        if (now < counterattackAt) return;
+        counterattackEnemy(scheduledTargetId);
+        counterattackTargetIdRef.current = null;
+        counterattackAtRef.current = null;
         dangerStartedAtRef.current = null;
-        lastDamageAtRef.current = 0;
+        dangerNearbyRef.current = false;
+        setDangerNearby(false);
+        return;
+      }
+
+      let nearbyEnemy: { enemy: EnemyState; distance: number } | null = null;
+      for (const enemy of enemiesRef.current) {
+        const position = movingEntityPoint(enemy, now);
+        const distance = Math.hypot(position.x - player.x, position.y - player.y);
+        if (distance <= ATTACK_RANGE && (!nearbyEnemy || distance < nearbyEnemy.distance)) {
+          nearbyEnemy = { enemy, distance };
+        }
+      }
+
+      if (!nearbyEnemy) {
+        dangerStartedAtRef.current = null;
+        counterattackAtRef.current = null;
+        counterattackTargetIdRef.current = null;
         if (dangerNearbyRef.current) {
           dangerNearbyRef.current = false;
           setDangerNearby(false);
@@ -1422,23 +1424,15 @@ export default function BlockGardenWorld() {
       }
       if (dangerStartedAtRef.current === null) {
         dangerStartedAtRef.current = now;
-        lastDamageAtRef.current = now;
-        setMessage("Dikkat! Kılıcı kullan, gölge çok yakında");
+        setMessage("Dikkat! Gölge hazırlanıyor; ilk saldırı ondan gelecek");
         return;
       }
-      if (
-        now - dangerStartedAtRef.current < 1200 ||
-        now - lastDamageAtRef.current < 1200
-      ) {
-        return;
-      }
+      if (now - dangerStartedAtRef.current < ENEMY_FIRST_HIT_DELAY) return;
 
-      lastDamageAtRef.current = now;
       const nextHealth = Math.max(0, healthRef.current - CONTACT_DAMAGE);
       healthRef.current = nextHealth;
       setHealth(nextHealth);
       playSound("hurt");
-      setMessage(`Dikkat! Canın ${nextHealth} oldu`);
 
       if (nextHealth === 0) {
         walkRef.current = null;
@@ -1446,16 +1440,22 @@ export default function BlockGardenWorld() {
         cameraRef.current = { x: START_POINT.x, y: START_POINT.y, z: 0 };
         healthRef.current = MAX_HEALTH;
         dangerStartedAtRef.current = null;
-        lastDamageAtRef.current = 0;
+        counterattackAtRef.current = null;
+        counterattackTargetIdRef.current = null;
         dangerNearbyRef.current = false;
         setHealth(MAX_HEALTH);
         setDangerNearby(false);
         setIsWalking(false);
         setMessage("Mino dinlendi ve yeniden 100 canla hazır!");
+        return;
       }
+
+      counterattackTargetIdRef.current = nearbyEnemy.enemy.id;
+      counterattackAtRef.current = now + AUTO_COUNTERATTACK_DELAY;
+      setMessage(`Gölge önce vurdu! Canın ${nextHealth}; Mino birazdan karşılık verecek`);
     }, 140);
     return () => window.clearInterval(timer);
-  }, [playSound, started]);
+  }, [counterattackEnemy, playSound, started]);
 
   const handleArrival = useCallback(
     (point: Point, finalStep: boolean) => {
@@ -1511,14 +1511,8 @@ export default function BlockGardenWorld() {
   );
 
   useEffect(() => {
-    if (!started) return;
+    if (!started || isWalking) return;
     const handleKey = (event: KeyboardEvent) => {
-      if (event.code === "Space") {
-        event.preventDefault();
-        swingSword();
-        return;
-      }
-      if (isWalking) return;
       const current = playerRef.current;
       const moves: Record<string, Point> = {
         ArrowUp: { x: current.x - 1, y: current.y },
@@ -1537,7 +1531,7 @@ export default function BlockGardenWorld() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isWalking, moveTo, started, swingSword]);
+  }, [isWalking, moveTo, started]);
 
   const findTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1660,7 +1654,8 @@ export default function BlockGardenWorld() {
     dustIdRef.current = 0;
     swordSwingStartedAtRef.current = -1000;
     dangerStartedAtRef.current = null;
-    lastDamageAtRef.current = 0;
+    counterattackAtRef.current = null;
+    counterattackTargetIdRef.current = null;
     dangerNearbyRef.current = false;
     healthRef.current = MAX_HEALTH;
     setWorld(nextWorld);
@@ -1761,17 +1756,6 @@ export default function BlockGardenWorld() {
                 <button type="button" className="dpad-southeast" onClick={() => step("southeast")} aria-label="Sağ aşağı yürü" disabled={isWalking}>↘</button>
               </div>
             )}
-            <button
-              type="button"
-              className={`sword-button${dangerNearby ? " danger" : ""}`}
-              onClick={swingSword}
-              aria-label="Kılıçla vur"
-              title="Kılıçla vur (Boşluk tuşu)"
-            >
-              <span aria-hidden="true">⚔️</span>
-              <strong>KILIÇ</strong>
-              <small>BOŞLUK</small>
-            </button>
           </>
         )}
 
