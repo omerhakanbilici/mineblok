@@ -10,6 +10,14 @@ type BlockKind = "dirt" | "grass" | "sand" | "pink" | "blue" | "flower";
 type BuildBlock = Exclude<BlockKind, "dirt">;
 type World = BlockKind[][][];
 type Point = { x: number; y: number };
+type ScreenPoint = { x: number; y: number };
+type WalkMotion = {
+  from: Point;
+  to: Point;
+  startedAt: number;
+  duration: number;
+  remaining: Point[];
+};
 type Metrics = {
   centerX: number;
   topY: number;
@@ -91,10 +99,10 @@ function polygon(
 }
 
 function getMetrics(width: number, height: number): Metrics {
-  const tileW = Math.min(76, Math.max(37, width / 11.5));
+  const tileW = Math.max(36, Math.min(104, width / 9.45, (height - 20) / 5.2));
   return {
     centerX: width / 2,
-    topY: Math.max(98, height * 0.18),
+    topY: Math.max(86, tileW * 1.35),
     tileW,
     tileH: tileW * 0.5,
     blockH: tileW * 0.34,
@@ -239,15 +247,14 @@ function drawStar(
 
 function drawPlayer(
   context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  columnHeight: number,
+  center: ScreenPoint,
   metrics: Metrics,
   time: number,
+  walking: boolean,
 ) {
-  const center = tileCenter(x, y, columnHeight, metrics);
   const unit = metrics.tileW / 64;
-  const bounce = Math.sin(time * 0.006) * 1.5;
+  const stride = walking ? Math.sin(time * 0.018) : 0;
+  const bounce = walking ? Math.abs(Math.sin(time * 0.018)) * 2.5 * unit : Math.sin(time * 0.006) * 1.5;
   const baseY = center.y - 4 * unit + bounce;
 
   context.fillStyle = "rgba(38, 75, 56, 0.18)";
@@ -257,9 +264,22 @@ function drawPlayer(
 
   context.fillStyle = "#3e8cc7";
   context.fillRect(center.x - 11 * unit, baseY - 29 * unit, 22 * unit, 24 * unit);
+  context.fillStyle = "#ffd2a5";
+  context.fillRect(center.x - 15 * unit - stride * 2 * unit, baseY - 27 * unit, 5 * unit, 18 * unit);
+  context.fillRect(center.x + 10 * unit + stride * 2 * unit, baseY - 27 * unit, 5 * unit, 18 * unit);
   context.fillStyle = "#2f679a";
-  context.fillRect(center.x - 10 * unit, baseY - 7 * unit, 8 * unit, 12 * unit);
-  context.fillRect(center.x + 2 * unit, baseY - 7 * unit, 8 * unit, 12 * unit);
+  context.fillRect(
+    center.x - 10 * unit + stride * 2.5 * unit,
+    baseY - 7 * unit - Math.max(0, stride) * 2 * unit,
+    8 * unit,
+    12 * unit,
+  );
+  context.fillRect(
+    center.x + 2 * unit - stride * 2.5 * unit,
+    baseY - 7 * unit - Math.max(0, -stride) * 2 * unit,
+    8 * unit,
+    12 * unit,
+  );
   context.fillStyle = "#ffd2a5";
   context.fillRect(center.x - 14 * unit, baseY - 50 * unit, 28 * unit, 23 * unit);
   context.fillStyle = "#f6a847";
@@ -337,9 +357,61 @@ function isSamePoint(a: Point, b: Point) {
   return a.x === b.x && a.y === b.y;
 }
 
+function findWalkingPath(world: World, start: Point, target: Point) {
+  if (isSamePoint(start, target)) return [];
+  const key = (point: Point) => `${point.x},${point.y}`;
+  const queue: Point[] = [start];
+  const visited = new Set([key(start)]);
+  const previous = new Map<string, Point>();
+  const directions = [
+    { x: -1, y: 0 },
+    { x: 0, y: -1 },
+    { x: 0, y: 1 },
+    { x: 1, y: 0 },
+  ];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    for (const direction of directions) {
+      const next = { x: current.x + direction.x, y: current.y + direction.y };
+      if (
+        next.x < 0 ||
+        next.y < 0 ||
+        next.x >= WORLD_SIZE ||
+        next.y >= WORLD_SIZE ||
+        world[next.y][next.x].length === 0 ||
+        visited.has(key(next))
+      ) {
+        continue;
+      }
+      visited.add(key(next));
+      previous.set(key(next), current);
+      if (isSamePoint(next, target)) {
+        const path: Point[] = [next];
+        let cursor = current;
+        while (!isSamePoint(cursor, start)) {
+          path.unshift(cursor);
+          const parent = previous.get(key(cursor));
+          if (!parent) break;
+          cursor = parent;
+        }
+        return path;
+      }
+      queue.push(next);
+    }
+  }
+
+  return [];
+}
+
 export default function BlockGardenGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<AudioContext | null>(null);
+  const playerRef = useRef<Point>({ x: 4, y: 4 });
+  const walkRef = useRef<WalkMotion | null>(null);
+  const arrivalRef = useRef<(point: Point, finalStep: boolean) => void>(() => undefined);
+  const collectedStarsRef = useRef<string[]>([]);
   const [started, setStarted] = useState(false);
   const [mode, setMode] = useState<Mode>("walk");
   const [selectedBlock, setSelectedBlock] = useState<BuildBlock>("grass");
@@ -349,6 +421,7 @@ export default function BlockGardenGame() {
   const [message, setMessage] = useState("Gitmek istediğin yere dokun");
   const [soundOn, setSoundOn] = useState(true);
   const [celebrating, setCelebrating] = useState(false);
+  const [isWalking, setIsWalking] = useState(false);
 
   const playSound = useCallback(
     (kind: "start" | "step" | "build" | "remove" | "star" | "hello" | "oops") => {
@@ -408,6 +481,73 @@ export default function BlockGardenGame() {
       const metrics = getMetrics(width, height);
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const time = reducedMotion ? 0 : rawTime;
+      let playerCenter = tileCenter(
+        playerRef.current.x,
+        playerRef.current.y,
+        world[playerRef.current.y][playerRef.current.x].length,
+        metrics,
+      );
+      let playerIsMoving = false;
+
+      const activeMotion = walkRef.current;
+      if (activeMotion) {
+        const elapsed = Math.max(0, rawTime - activeMotion.startedAt);
+        if (elapsed >= activeMotion.duration) {
+          const arrived = activeMotion.to;
+          playerRef.current = arrived;
+          setPlayer(arrived);
+          const finalStep = activeMotion.remaining.length === 0;
+          arrivalRef.current(arrived, finalStep);
+
+          if (finalStep) {
+            walkRef.current = null;
+            setIsWalking(false);
+          } else {
+            const [next, ...remaining] = activeMotion.remaining;
+            walkRef.current = {
+              from: arrived,
+              to: next,
+              remaining,
+              startedAt: rawTime,
+              duration: activeMotion.duration,
+            };
+            playSound("step");
+          }
+        }
+
+        const currentMotion = walkRef.current;
+        if (currentMotion) {
+          const rawProgress = Math.min(
+            1,
+            Math.max(0, (rawTime - currentMotion.startedAt) / currentMotion.duration),
+          );
+          const progress = rawProgress * rawProgress * (3 - 2 * rawProgress);
+          const fromCenter = tileCenter(
+            currentMotion.from.x,
+            currentMotion.from.y,
+            world[currentMotion.from.y][currentMotion.from.x].length,
+            metrics,
+          );
+          const toCenter = tileCenter(
+            currentMotion.to.x,
+            currentMotion.to.y,
+            world[currentMotion.to.y][currentMotion.to.x].length,
+            metrics,
+          );
+          playerCenter = {
+            x: fromCenter.x + (toCenter.x - fromCenter.x) * progress,
+            y: fromCenter.y + (toCenter.y - fromCenter.y) * progress,
+          };
+          playerIsMoving = true;
+        } else {
+          playerCenter = tileCenter(
+            playerRef.current.x,
+            playerRef.current.y,
+            world[playerRef.current.y][playerRef.current.x].length,
+            metrics,
+          );
+        }
+      }
 
       const sky = context.createLinearGradient(0, 0, 0, height);
       sky.addColorStop(0, "#7fd3ff");
@@ -431,7 +571,7 @@ export default function BlockGardenGame() {
 
       context.fillStyle = "rgba(88, 185, 198, 0.28)";
       context.beginPath();
-      context.ellipse(width / 2, height * 0.79, Math.min(width * 0.42, 420), height * 0.115, 0, 0, Math.PI * 2);
+      context.ellipse(width / 2, height * 0.79, Math.min(width * 0.46, 520), height * 0.13, 0, 0, Math.PI * 2);
       context.fill();
       context.strokeStyle = "rgba(255, 255, 255, 0.48)";
       context.lineWidth = 2;
@@ -461,11 +601,10 @@ export default function BlockGardenGame() {
           const animal = ANIMALS.find((candidate) => candidate.x === x && candidate.y === y);
           if (animal) drawAnimal(context, animal.kind, x, y, column.length, metrics, time);
 
-          if (player.x === x && player.y === y) {
-            drawPlayer(context, x, y, column.length, metrics, time);
-          }
         }
       }
+
+      drawPlayer(context, playerCenter, metrics, time, playerIsMoving);
 
       if (celebrating) {
         const colors = ["#ff785d", "#ffd84e", "#68b8e8", "#7bd161", "#f58aaa"];
@@ -482,7 +621,7 @@ export default function BlockGardenGame() {
         }
       }
     },
-    [celebrating, collectedStars, player, world],
+    [celebrating, collectedStars, playSound, world],
   );
 
   useEffect(() => {
@@ -498,9 +637,11 @@ export default function BlockGardenGame() {
   const collectAt = useCallback(
     (point: Point) => {
       const star = STARS.find((candidate) => isSamePoint(candidate, point));
-      if (!star || collectedStars.includes(star.id)) return false;
-      const nextCount = collectedStars.length + 1;
-      setCollectedStars((current) => [...current, star.id]);
+      if (!star || collectedStarsRef.current.includes(star.id)) return false;
+      const nextStars = [...collectedStarsRef.current, star.id];
+      collectedStarsRef.current = nextStars;
+      const nextCount = nextStars.length;
+      setCollectedStars(nextStars);
       playSound("star");
       if (nextCount === STARS.length) {
         setMessage("Harika! Bütün yıldızları buldun!");
@@ -510,11 +651,34 @@ export default function BlockGardenGame() {
       }
       return true;
     },
-    [collectedStars, playSound],
+    [playSound],
   );
+
+  const handleArrival = useCallback(
+    (point: Point, finalStep: boolean) => {
+      const foundStar = collectAt(point);
+      if (!finalStep || foundStar) return;
+      const animal = ANIMALS.find((candidate) => isSamePoint(candidate, point));
+      if (animal) {
+        setMessage(animal.greeting);
+        playSound("hello");
+      } else {
+        setMessage("Gezmeye devam et, yıldızlar parlıyor!");
+      }
+    },
+    [collectAt, playSound],
+  );
+
+  useEffect(() => {
+    arrivalRef.current = handleArrival;
+  }, [handleArrival]);
 
   const moveTo = useCallback(
     (point: Point) => {
+      if (walkRef.current) {
+        setMessage("Mino yürüyor...");
+        return;
+      }
       if (point.x < 0 || point.y < 0 || point.x >= WORLD_SIZE || point.y >= WORLD_SIZE) {
         playSound("oops");
         setMessage("Adanın içinde kalalım");
@@ -525,33 +689,46 @@ export default function BlockGardenGame() {
         setMessage("Orası su! Başka bir yere gidelim");
         return;
       }
-      setPlayer(point);
-      playSound("step");
-      const foundStar = collectAt(point);
-      if (foundStar) return;
-      const animal = ANIMALS.find((candidate) => isSamePoint(candidate, point));
-      if (animal) {
-        setMessage(animal.greeting);
-        playSound("hello");
-      } else {
-        setMessage("Gezmeye devam et, yıldızlar parlıyor!");
+
+      const start = playerRef.current;
+      if (isSamePoint(start, point)) {
+        arrivalRef.current(point, true);
+        return;
       }
+      const path = findWalkingPath(world, start, point);
+      if (path.length === 0) {
+        playSound("oops");
+        setMessage("Oraya giden bir yol bulamadım");
+        return;
+      }
+      const [next, ...remaining] = path;
+      walkRef.current = {
+        from: start,
+        to: next,
+        remaining,
+        startedAt: performance.now(),
+        duration: 330,
+      };
+      setIsWalking(true);
+      setMessage(path.length > 1 ? "Mino kare kare yürüyor..." : "Mino yürüyor...");
+      playSound("step");
     },
-    [collectAt, playSound, world],
+    [playSound, world],
   );
 
   useEffect(() => {
-    if (!started || celebrating) return;
+    if (!started || celebrating || isWalking) return;
     const handleKey = (event: KeyboardEvent) => {
+      const current = playerRef.current;
       const moves: Record<string, Point> = {
-        ArrowUp: { x: player.x - 1, y: player.y },
-        w: { x: player.x - 1, y: player.y },
-        ArrowDown: { x: player.x + 1, y: player.y },
-        s: { x: player.x + 1, y: player.y },
-        ArrowLeft: { x: player.x, y: player.y + 1 },
-        a: { x: player.x, y: player.y + 1 },
-        ArrowRight: { x: player.x, y: player.y - 1 },
-        d: { x: player.x, y: player.y - 1 },
+        ArrowUp: { x: current.x - 1, y: current.y },
+        w: { x: current.x - 1, y: current.y },
+        ArrowDown: { x: current.x + 1, y: current.y },
+        s: { x: current.x + 1, y: current.y },
+        ArrowLeft: { x: current.x, y: current.y + 1 },
+        a: { x: current.x, y: current.y + 1 },
+        ArrowRight: { x: current.x, y: current.y - 1 },
+        d: { x: current.x, y: current.y - 1 },
       };
       const next = moves[event.key];
       if (!next) return;
@@ -560,7 +737,7 @@ export default function BlockGardenGame() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [celebrating, moveTo, player, started]);
+  }, [celebrating, isWalking, moveTo, started]);
 
   const findTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -649,22 +826,27 @@ export default function BlockGardenGame() {
   };
 
   const resetGame = () => {
+    walkRef.current = null;
+    playerRef.current = { x: 4, y: 4 };
+    collectedStarsRef.current = [];
     setWorld(makeInitialWorld());
     setPlayer({ x: 4, y: 4 });
     setCollectedStars([]);
     setMode("walk");
     setSelectedBlock("grass");
     setCelebrating(false);
+    setIsWalking(false);
     setMessage("Yeni ada hazır!");
     playSound("start");
   };
 
-  const step = (direction: "up" | "down" | "left" | "right") => {
+  const step = (direction: "northwest" | "northeast" | "southwest" | "southeast") => {
+    const current = playerRef.current;
     const next = {
-      up: { x: player.x - 1, y: player.y },
-      down: { x: player.x + 1, y: player.y },
-      left: { x: player.x, y: player.y + 1 },
-      right: { x: player.x, y: player.y - 1 },
+      northwest: { x: current.x - 1, y: current.y },
+      northeast: { x: current.x, y: current.y - 1 },
+      southwest: { x: current.x, y: current.y + 1 },
+      southeast: { x: current.x + 1, y: current.y },
     }[direction];
     moveTo(next);
   };
@@ -714,8 +896,9 @@ export default function BlockGardenGame() {
       <section className="world-card" aria-label="Blok Bahçesi oyun alanı">
         <canvas
           ref={canvasRef}
-          className={`world-canvas mode-${mode}`}
+          className={`world-canvas mode-${mode}${isWalking ? " is-walking" : ""}`}
           onPointerDown={chooseTile}
+          aria-busy={isWalking}
           aria-label="Dokunarak gezebileceğin, yıldız toplayabileceğin ve blok yapabileceğin ada"
         />
 
@@ -736,11 +919,11 @@ export default function BlockGardenGame() {
           <>
             <div className="hint-bubble" role="status" aria-live="polite">{message}</div>
             {mode === "walk" && (
-              <div className="dpad" aria-label="Yürüme okları">
-                <button type="button" className="dpad-up" onClick={() => step("up")} aria-label="Yukarı yürü">▲</button>
-                <button type="button" className="dpad-left" onClick={() => step("left")} aria-label="Sola yürü">◀</button>
-                <button type="button" className="dpad-right" onClick={() => step("right")} aria-label="Sağa yürü">▶</button>
-                <button type="button" className="dpad-down" onClick={() => step("down")} aria-label="Aşağı yürü">▼</button>
+              <div className="dpad" aria-label="Haritayla aynı yöndeki çapraz yürüme okları">
+                <button type="button" className="dpad-northwest" onClick={() => step("northwest")} aria-label="Sol yukarı yürü" disabled={isWalking}>↖</button>
+                <button type="button" className="dpad-northeast" onClick={() => step("northeast")} aria-label="Sağ yukarı yürü" disabled={isWalking}>↗</button>
+                <button type="button" className="dpad-southwest" onClick={() => step("southwest")} aria-label="Sol aşağı yürü" disabled={isWalking}>↙</button>
+                <button type="button" className="dpad-southeast" onClick={() => step("southeast")} aria-label="Sağ aşağı yürü" disabled={isWalking}>↘</button>
               </div>
             )}
           </>
@@ -767,7 +950,7 @@ export default function BlockGardenGame() {
             type="button"
             className={mode === "walk" ? "tool-button active" : "tool-button"}
             onClick={() => { setMode("walk"); setMessage("Gitmek istediğin yere dokun"); }}
-            disabled={!started}
+            disabled={!started || isWalking}
           >
             <span aria-hidden="true">👣</span><strong>GEZ</strong>
           </button>
@@ -775,7 +958,7 @@ export default function BlockGardenGame() {
             type="button"
             className={mode === "build" ? "tool-button active" : "tool-button"}
             onClick={() => { setMode("build"); setMessage("Blok koymak için adaya dokun"); }}
-            disabled={!started}
+            disabled={!started || isWalking}
           >
             <span className="block-icon" aria-hidden="true" /><strong>YAP</strong>
           </button>
@@ -783,7 +966,7 @@ export default function BlockGardenGame() {
             type="button"
             className={mode === "remove" ? "tool-button active remove" : "tool-button remove"}
             onClick={() => { setMode("remove"); setMessage("Geri almak istediğin bloğa dokun"); }}
-            disabled={!started}
+            disabled={!started || isWalking}
           >
             <span aria-hidden="true">🧺</span><strong>GERİ AL</strong>
           </button>
